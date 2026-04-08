@@ -24,6 +24,8 @@ portfolio.json
 .idea/
 *.swp
 *.swo
+k-invest.code-workspace
+.agents/
 
 # OS specific
 .DS_Store
