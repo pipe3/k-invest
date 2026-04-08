@@ -5,7 +5,7 @@ import requests
 import yfinance as yf
 from agent import analyze_portfolio
 
-PORTFOLIO_FILE = "portfolio.json"
+PORTFOLIO_FILE = os.environ.get("PORTFOLIO_FILE", "portfolio.json")
 
 def fetch_name_for_ticker(ticker: str) -> str:
     """Fetch the short name from yfinance for a given ticker (used during migration)."""

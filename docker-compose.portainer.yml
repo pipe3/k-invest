@@ -1,0 +1,16 @@
+services:
+  k-invest:
+    build:
+      context: https://github.com/pipe3/k-invest.git
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    volumes:
+      - k-invest-data:/data
+    environment:
+      - ANTHROPIC_API_KEY=sk-ant-DEIN-KEY-HIER
+      - PORTFOLIO_FILE=/data/portfolio.json
+    restart: unless-stopped
+
+volumes:
+  k-invest-data:
