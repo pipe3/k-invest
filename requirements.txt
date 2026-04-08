@@ -1,0 +1,6 @@
+streamlit
+anthropic
+yfinance
+ddgs
+pandas
+multitasking<=0.0.9
