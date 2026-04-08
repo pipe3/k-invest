@@ -1,0 +1,10 @@
+services:
+  k-invest:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./portfolio.json:/app/portfolio.json
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    restart: unless-stopped
