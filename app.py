@@ -5,9 +5,11 @@ import requests
 import yfinance as yf
 from datetime import datetime
 from agent import analyze_portfolio
+from podcast_agent import analyze_latest_podcast
 
 PORTFOLIO_FILE = os.environ.get("PORTFOLIO_FILE", "portfolio.json")
 HISTORY_FILE   = os.environ.get("HISTORY_FILE",   "history.json")
+PODCAST_WATCHLIST_FILE = os.environ.get("PODCAST_WATCHLIST_FILE", "doppelgaenger_watchlist.json")
 MAX_HISTORY    = 10
 
 # ─── Data helpers ─────────────────────────────────────────────────────────────
@@ -66,6 +68,19 @@ def save_history(entry: dict):
 def clear_history():
     with open(HISTORY_FILE, "w") as f:
         json.dump([], f)
+
+def load_podcast_watchlist() -> list:
+    if os.path.exists(PODCAST_WATCHLIST_FILE):
+        with open(PODCAST_WATCHLIST_FILE, "r") as f:
+            content = f.read().strip()
+        if not content:
+            return []
+        return json.loads(content)
+    return []
+
+def save_podcast_watchlist(data: list):
+    with open(PODCAST_WATCHLIST_FILE, "w") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
 
 # ─── Search widget ────────────────────────────────────────────────────────────
@@ -211,16 +226,24 @@ st.markdown(
 api_key = st.sidebar.text_input(
     "Anthropic API Key", type="password", value=os.environ.get("ANTHROPIC_API_KEY", "")
 )
+youtube_api_key = st.sidebar.text_input(
+    "YouTube API Key (Podcast)", type="password", value=os.environ.get("YOUTUBE_API_KEY", "")
+)
+
 if not api_key:
     st.sidebar.warning(
         "Bitte gib einen Anthropic API Key ein (oder setze ANTHROPIC_API_KEY in den Umgebungsvariablen)."
+    )
+if not youtube_api_key:
+    st.sidebar.info(
+        "Ein YouTube API Key wird für den Doppelgänger-Podcast Scanner benötigt."
     )
 
 portfolio_data = load_portfolio()
 
 # ─── Tabs ─────────────────────────────────────────────────────────────────────
 
-tab_analyse, tab_depot, tab_watchlist = st.tabs(["🚀 Analyse", "💼 Depot", "🔭 Watchlist"])
+tab_analyse, tab_depot, tab_watchlist, tab_podcast = st.tabs(["🚀 Analyse", "💼 Depot", "🔭 Watchlist", "🎧 Podcast"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB: ANALYSE
@@ -365,3 +388,43 @@ with tab_watchlist:
         render_entry_list("watchlist", "w")
     else:
         st.info("Noch keine Einträge in der Watchlist. Nutze die Suche oben um Aktien hinzuzufügen.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB: PODCAST
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_podcast:
+    st.subheader("🎧 Doppelgänger Tech Talk Scanner")
+    st.markdown("Analysiert die neueste Folge von @doppelgaengerio auf Swing-Trading-Chancen.")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        if st.button("🚀 Neueste Folge analysieren", type="primary", use_container_width=True, disabled=not (api_key and youtube_api_key)):
+            podcast_wl = load_podcast_watchlist()
+            with st.spinner("Lade Video-Metadaten, Transkript und analysiere mit Claude... (Das kann ca. 30-60 Sekunden dauern)"):
+                result = analyze_latest_podcast(youtube_api_key, api_key, podcast_wl)
+                
+            if "error" in result:
+                st.error(result["error"])
+            else:
+                st.success(f"Erfolgreich analysiert: {result['title']}")
+                # Save new watchlist if returned
+                if result.get("new_watchlist"):
+                    save_podcast_watchlist(result["new_watchlist"])
+                
+                # Show results temporarily (could also save to a history if we want)
+                st.session_state["last_podcast_result"] = result["text"]
+                st.rerun()
+                
+    if st.session_state.get("last_podcast_result"):
+        st.markdown("### Claude Analyse")
+        st.markdown(st.session_state["last_podcast_result"])
+        
+    st.divider()
+    st.markdown("### 📋 Laufende Doppelgänger-Watchlist")
+    podcast_wl = load_podcast_watchlist()
+    if podcast_wl:
+        st.dataframe(podcast_wl, use_container_width=True)
+    else:
+        st.info("Die Watchlist ist aktuell leer. Führe eine Analyse aus, um sie zu füllen.")
+
