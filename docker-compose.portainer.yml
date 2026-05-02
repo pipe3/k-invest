@@ -10,6 +10,7 @@ services:
     environment:
       - ANTHROPIC_API_KEY=sk-ant-DEIN-KEY-HIER
       - PORTFOLIO_FILE=/data/portfolio.json
+      - HISTORY_FILE=/data/history.json
     restart: unless-stopped
 
 volumes:
