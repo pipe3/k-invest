@@ -91,7 +91,7 @@ Hier ist das Transkript der aktuellen Folge ('{title}'):
     
     try:
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             max_tokens=8192,
             system=SYSTEM_PROMPT,
             messages=messages,
@@ -120,7 +120,7 @@ Hier ist das Transkript der aktuellen Folge ('{title}'):
             
             # Request second turn
             text_response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-6",
                 max_tokens=8192,
                 system=SYSTEM_PROMPT,
                 messages=messages
