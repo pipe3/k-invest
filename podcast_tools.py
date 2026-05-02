@@ -49,13 +49,23 @@ def get_video_transcript(video_id: str) -> str:
     Returns the transcript as a single formatted string.
     """
     try:
-        # Try to fetch German first, fallback to English or auto-generated
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['de', 'en'])
+        # Try standard PyPI youtube-transcript-api (0.6.x)
+        try:
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['de', 'en'])
+        except AttributeError:
+            # Fallback to local/custom version API
+            transcript_list = YouTubeTranscriptApi().fetch(video_id, languages=['de', 'en'])
         
         # Format transcript
         formatted_transcript = []
         for entry in transcript_list:
-            text = entry["text"].replace('\n', ' ')
+            # Handle both dictionary and object formats
+            if isinstance(entry, dict):
+                text = entry.get("text", "")
+            else:
+                text = getattr(entry, "text", "")
+            
+            text = text.replace('\n', ' ')
             formatted_transcript.append(text)
             
         return " ".join(formatted_transcript)
