@@ -9,8 +9,10 @@ services:
       - k-invest-data:/data
     environment:
       - ANTHROPIC_API_KEY=sk-ant-DEIN-KEY-HIER
+      - YOUTUBE_API_KEY=DEIN-YOUTUBE-KEY-HIER
       - PORTFOLIO_FILE=/data/portfolio.json
       - HISTORY_FILE=/data/history.json
+      - PODCAST_WATCHLIST_FILE=/data/doppelgaenger_watchlist.json
     restart: unless-stopped
 
 volumes:
