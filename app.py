@@ -61,9 +61,11 @@ portfolio_data = load_portfolio()
 
 def render_search_and_add(list_key: str, uid: str):
     """Reusable two-step search widget: Search → Select from dropdown → Add."""
-    search_term = st.text_input("🔍 Name oder Ticker suchen (z.B. 'Apple', 'Mercedes', 'NVDA')", key=f"in_{uid}")
+    with st.form(key=f"form_search_{uid}", enter_to_submit=True):
+        search_term = st.text_input("🔍 Name oder Ticker suchen (z.B. 'Apple', 'Mercedes', 'NVDA')", key=f"in_{uid}")
+        submitted = st.form_submit_button("Suchen")
 
-    if st.button("Suchen", key=f"btn_search_{uid}"):
+    if submitted:
         if search_term.strip():
             with st.spinner("Suche läuft..."):
                 results = search_yahoo_finance(search_term.strip())
