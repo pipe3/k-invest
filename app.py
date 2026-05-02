@@ -132,21 +132,50 @@ def render_search_and_add(list_key: str, uid: str):
 
 
 def render_entry_list(list_key: str, uid_prefix: str):
-    """Render list entries with ❌ delete icon and undo mechanism."""
+    """Render list entries with move icon, ❌ delete icon and undo mechanism."""
     pending_key = f"pending_delete_{list_key}"
+    is_depot = list_key == "depot"
+    target_key = "watchlist" if is_depot else "depot"
+    move_icon = "➡️" if is_depot else "⬅️"
+    move_help = "In Watchlist verschieben" if is_depot else "Ins Depot verschieben"
+    target_name = "Watchlist" if is_depot else "Depot"
 
     for entry in list(portfolio_data[list_key]):
         ticker = entry["ticker"]
         name   = entry.get("name", ticker)
         is_pending = st.session_state.get(pending_key) == ticker
 
-        col_name, col_btn = st.columns([10, 1])
+        col_name, col_move, col_btn = st.columns([9, 1, 1])
 
         with col_name:
             if is_pending:
                 st.markdown(f"<span style='color: #888; text-decoration: line-through;'>**{name}** ({ticker})</span>", unsafe_allow_html=True)
             else:
                 st.markdown(f"**{name}** ({ticker})")
+
+        with col_move:
+            if not is_pending:
+                if st.button(move_icon, key=f"move_{uid_prefix}_{ticker}", help=move_help):
+                    # Check if already in target
+                    if any(e["ticker"] == ticker for e in portfolio_data[target_key]):
+                        st.toast(f"⚠️ {name} ({ticker}) ist bereits in {target_name}!", icon="⚠️")
+                    else:
+                        # Flush any previously pending delete first
+                        prev = st.session_state.get(pending_key)
+                        if prev and prev != ticker:
+                            portfolio_data[list_key] = [
+                                e for e in portfolio_data[list_key] if e["ticker"] != prev
+                            ]
+                        
+                        # Execute move
+                        portfolio_data[target_key].append(entry)
+                        portfolio_data[list_key] = [
+                            e for e in portfolio_data[list_key] if e["ticker"] != ticker
+                        ]
+                        save_portfolio(portfolio_data)
+                        st.toast(f"✅ {name} ({ticker}) nach {target_name} verschoben!")
+                        st.session_state[pending_key] = None
+                        st.rerun()
 
         with col_btn:
             if is_pending:
