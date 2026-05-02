@@ -4,24 +4,15 @@ from youtube_transcript_api import YouTubeTranscriptApi
 
 def get_latest_video_id(api_key: str, channel_handle: str = "@doppelgaengerio") -> dict:
     """
-    Fetches the latest video ID and title from a YouTube channel handle.
+    Fetches the latest video ID and title for the podcast channel.
     Returns: {"video_id": "...", "title": "..."}
     """
     try:
         youtube = build("youtube", "v3", developerKey=api_key)
         
-        # 1. First, search for the channel ID using the handle
-        channel_search = youtube.search().list(
-            part="snippet",
-            q=channel_handle,
-            type="channel",
-            maxResults=1
-        ).execute()
-        
-        if not channel_search.get("items"):
-            return {"error": f"Channel {channel_handle} not found."}
-            
-        channel_id = channel_search["items"][0]["snippet"]["channelId"]
+        # We hardcode the channel ID for @doppelgaengerio to avoid flaky handle searches
+        # Channel ID: UCZsFRBZ-5wNeFEqLFqnemcw
+        channel_id = "UCZsFRBZ-5wNeFEqLFqnemcw"
         
         # 2. Get the latest video for this channel
         video_search = youtube.search().list(
