@@ -24,7 +24,10 @@ def fetch_name_for_ticker(ticker: str) -> str:
 def load_portfolio():
     if os.path.exists(PORTFOLIO_FILE):
         with open(PORTFOLIO_FILE, "r") as f:
-            data = json.load(f)
+            content = f.read().strip()
+        if not content:
+            return {"depot": [], "watchlist": []}
+        data = json.loads(content)
         # --- Migration: old format was plain string lists, new format is list of dicts ---
         migrated = False
         for key in ("depot", "watchlist"):
@@ -45,7 +48,10 @@ def save_portfolio(data):
 def load_history() -> list:
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "r") as f:
-            return json.load(f)
+            content = f.read().strip()
+        if not content:
+            return []
+        return json.loads(content)
     return []
 
 
