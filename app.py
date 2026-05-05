@@ -220,7 +220,6 @@ html {
 body {
     overflow-x: hidden !important;
     width: 100% !important;
-    position: relative !important;
 }
 [data-testid="stApp"],
 [data-testid="stAppViewContainer"],
@@ -234,10 +233,6 @@ body {
     max-width: 100% !important;
     padding-left: 1rem !important;
     padding-right: 1rem !important;
-}
-/* Sidebar must not push content sideways on mobile */
-[data-testid="stSidebar"] {
-    position: fixed !important;
 }
 /* Tables scroll internally instead of pushing the page */
 table {
