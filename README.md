@@ -4,7 +4,7 @@ K-Invest is an automated stock trading assistant powered by Anthropic's Claude A
 
 ## ✨ Features
 
-- **Automated AI Analysis**: Leverage Claude (Sonnet 4.6) to get strict `[BUY]`, `[HOLD]`, or `[SELL]` recommendations tailored for short-term swing trading.
+- **Automated AI Analysis**: Leverage Claude (Sonnet 4.6) to get strict `[KAUFEN]`, `[HALTEN]`, or `[VERKAUFEN]` recommendations tailored for short-term swing trading.
 - **Real-Time Market Data**: Fetches recent price action, 52-week highs/lows, trading volumes, and momentum metrics via `yfinance`.
 - **Catalyst Detection**: Automatically searches for the latest market news and triggers using `ddgs` (DuckDuckGo Search) before making a trading decision.
 - **Intuitive Interface**: Built with Streamlit for a clean, user-friendly experience. Easily manage your Depot (Portfolio) and Watchlist directly in the app.
@@ -49,8 +49,8 @@ streamlit run app.py
 
 A browser window will automatically open at `http://localhost:8501`. 
 1. Add your desired stock tickers (e.g., `AAPL`, `TSLA` or Xetra stocks like `MBG.DE`) to your Depot or Watchlist.
-2. Select whether you want to analyze the Depot, the Watchlist, or both.
-3. Click "Agenten-Analyse Starten" and wait for the AI to dynamically research and construct your report.
+2. Click **"🚀 Depot analysieren"** or **"🔭 Watchlist analysieren"** to start the analysis.
+3. Wait for the AI to dynamically research and construct your report.
 
 ## 🛠️ Tech Stack
 
