@@ -233,6 +233,8 @@ if not youtube_api_key:
         "Ein YouTube API Key wird für den Doppelgänger-Podcast Scanner benötigt."
     )
 
+st.sidebar.caption(f"Version: `{os.environ.get('APP_VERSION', 'dev')}`")
+
 portfolio_data = load_portfolio()
 
 # ─── Tabs ─────────────────────────────────────────────────────────────────────
