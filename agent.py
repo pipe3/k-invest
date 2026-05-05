@@ -19,9 +19,14 @@ DEIN OUTPUT:
 Beginne DIREKT mit der Zusammenfassungs-Tabelle — kein einleitender Satz, keine Begrüßung.
 
 Schreibe zuerst diese Zusammenfassungs-Tabelle:
-| Ticker | Empfehlung | Kurzfazit |
-| :--- | :--- | :--- |
-| z.B. AAPL | KAUFEN | Momentum intakt, Breakout bestätigt |
+| Ticker | Name | Empfehlung | Kurzfazit |
+| :--- | :--- | :--- | :--- |
+| z.B. AAPL | Apple Inc. | 🟢 KAUFEN | Momentum intakt, Breakout bestätigt |
+
+Verwende zwingend diese Symbole in der Empfehlung-Spalte:
+- KAUFEN → 🟢 KAUFEN
+- HALTEN → 🟡 HALTEN
+- VERKAUFEN → 🔴 VERKAUFEN
 
 Danach folgen die detaillierten Einzelanalysen — ZWINGEND in dieser Reihenfolge: zuerst alle KAUFEN, dann alle HALTEN, dann alle VERKAUFEN.
 

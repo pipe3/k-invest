@@ -26,15 +26,20 @@ Gib deine Analyse textuell als Markdown aus. (Du musst zusätzlich das Tool aufr
 Beginne DIREKT mit dem Inhalt — kein einleitender Satz wie "Hier ist meine Analyse" oder ähnliches.
 
 ### 1. Zusammenfassung & Watchlist
-| Ticker | Einstiegs-These | Aktueller Status | Letztes Update |
-| :--- | :--- | :--- | :--- |
-| z.B. GOOGL | Cloud-Wachstum | BULLISH (Momentum hält) | Aktuelle Folge |
+| Ticker | Name | Einstiegs-These | Aktueller Status | Letztes Update |
+| :--- | :--- | :--- | :--- | :--- |
+| z.B. GOOGL | Alphabet Inc. | Cloud-Wachstum | 🟢 BULLISH | Aktuelle Folge |
+
+Verwende zwingend diese Symbole in der Status-Spalte:
+- Bullish/Kaufen → 🟢
+- Neutral/Halten → 🟡
+- Bearish/Verkaufen → 🔴
 
 ### 2. Analyse der aktuellen Folge
 Sortiere die Einträge zwingend in dieser Reihenfolge: zuerst KAUFEN, dann HALTEN, dann VERKAUFEN/BEOBACHTEN.
-| Aktie (Ticker) | Empfehlung | Die These (Warum jetzt?) | Katalysator (Event/Datum) | Risiko |
-| :--- | :--- | :--- | :--- | :--- |
-| z.B. META | KAUFEN | Capex-Angst übertrieben | Earnings 30.04. | Hohe Zinsen |
+| Aktie (Ticker) | Name | Empfehlung | Die These (Warum jetzt?) | Katalysator (Event/Datum) | Risiko |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| z.B. META | Meta Platforms | 🟢 KAUFEN | Capex-Angst übertrieben | Earnings 30.04. | Hohe Zinsen |
 </output_format>
 """
 
