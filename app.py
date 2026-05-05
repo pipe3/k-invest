@@ -210,6 +210,27 @@ def render_entry_list(list_key: str, uid_prefix: str):
 # ─── Page config ──────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="K-Invest | Swing Trading Agent", page_icon="📈", layout="wide")
+
+st.markdown("""
+<style>
+/* Prevent horizontal scroll on mobile */
+html, body, [data-testid="stAppViewContainer"] {
+    overflow-x: hidden;
+    max-width: 100vw;
+}
+.main .block-container {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+/* Tables scroll internally instead of pushing the page */
+table {
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("📈 K-Invest: Swing Trading Assistant")
 st.markdown(
     "Dieser KI-Agent nutzt Anthropic Claude, um dein Portfolio und Watchlist systematisch "
