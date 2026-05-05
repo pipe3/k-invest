@@ -1,7 +1,9 @@
-import os
 import anthropic
 import json
 from tools import get_stock_price_and_momentum, search_recent_news, ANTHROPIC_TOOLS
+
+MODEL      = "claude-sonnet-4-6"
+MAX_TOKENS = 8192
 
 SYSTEM_PROMPT = """Du bist ein strikter, erfahrener und risiko-bewusster Swing-Trader. 
 Deine Aufgabe ist es, für die Aktien im Portfolio oder auf der Watchlist harte Empfehlungen auszusprechen.
@@ -41,8 +43,8 @@ def analyze_portfolio(depot, watchlist, api_key):
         
         while True:
             response = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=8192,
+                model=MODEL,
+                max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
                 messages=messages,
                 tools=ANTHROPIC_TOOLS

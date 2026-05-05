@@ -2,6 +2,9 @@ import json
 import anthropic
 from podcast_tools import get_latest_video_id, get_video_transcript
 
+MODEL      = "claude-sonnet-4-6"
+MAX_TOKENS = 8192
+
 SYSTEM_PROMPT = """<role>
 Du bist ein spezialisierter Investment-Analyst für den "Doppelgänger Tech Talk" Podcast. Deine Aufgabe ist es, das Transkript der aktuellsten Folge für Swing-Trader zu analysieren.
 </role>
@@ -91,8 +94,8 @@ Hier ist das Transkript der aktuellen Folge ('{title}'):
     
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=8192,
+            model=MODEL,
+            max_tokens=MAX_TOKENS,
             system=SYSTEM_PROMPT,
             messages=messages,
             tools=TOOLS,
@@ -116,7 +119,10 @@ Hier ist das Transkript der aktuellen Folge ('{title}'):
             # Add assistant message with tool call
             messages.append({"role": "assistant", "content": response.content})
             # Add user message simulating tool result
-            messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": response.content[0].id if response.content[0].type == "tool_use" else response.content[1].id, "content": "Gespeichert. Bitte gib nun die finale Markdown-Tabelle aus."}]})
+            tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
+            if tool_use_block is None:
+                return {"error": "Claude hat das Tool nicht aufgerufen."}
+            messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": tool_use_block.id, "content": "Gespeichert. Bitte gib nun die finale Markdown-Tabelle aus."}]})
             
             # Request second turn
             text_response = client.messages.create(

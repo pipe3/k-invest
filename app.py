@@ -12,7 +12,19 @@ HISTORY_FILE   = os.environ.get("HISTORY_FILE",   "history.json")
 PODCAST_WATCHLIST_FILE = os.environ.get("PODCAST_WATCHLIST_FILE", "doppelgaenger_watchlist.json")
 MAX_HISTORY    = 10
 
+CLAUDE_INPUT_PRICE_PER_M  = 3.00   # USD per million tokens (claude-sonnet-4-6)
+CLAUDE_OUTPUT_PRICE_PER_M = 15.00  # USD per million tokens (claude-sonnet-4-6)
+
 # ─── Data helpers ─────────────────────────────────────────────────────────────
+
+def _load_json_file(path: str, default):
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            content = f.read().strip()
+        if content:
+            return json.loads(content)
+    return default
+
 
 def fetch_name_for_ticker(ticker: str) -> str:
     """Fetch the short name from yfinance for a given ticker (used during migration)."""
@@ -24,22 +36,16 @@ def fetch_name_for_ticker(ticker: str) -> str:
 
 
 def load_portfolio():
-    if os.path.exists(PORTFOLIO_FILE):
-        with open(PORTFOLIO_FILE, "r") as f:
-            content = f.read().strip()
-        if not content:
-            return {"depot": [], "watchlist": []}
-        data = json.loads(content)
-        # --- Migration: old format was plain string lists, new format is list of dicts ---
-        migrated = False
-        for key in ("depot", "watchlist"):
-            if data.get(key) and isinstance(data[key][0], str):
-                data[key] = [{"ticker": t, "name": fetch_name_for_ticker(t)} for t in data[key]]
-                migrated = True
-        if migrated:
-            save_portfolio(data)
-        return data
-    return {"depot": [], "watchlist": []}
+    data = _load_json_file(PORTFOLIO_FILE, {"depot": [], "watchlist": []})
+    # --- Migration: old format was plain string lists, new format is list of dicts ---
+    migrated = False
+    for key in ("depot", "watchlist"):
+        if data.get(key) and isinstance(data[key][0], str):
+            data[key] = [{"ticker": t, "name": fetch_name_for_ticker(t)} for t in data[key]]
+            migrated = True
+    if migrated:
+        save_portfolio(data)
+    return data
 
 
 def save_portfolio(data):
@@ -48,13 +54,7 @@ def save_portfolio(data):
 
 
 def load_history() -> list:
-    if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, "r") as f:
-            content = f.read().strip()
-        if not content:
-            return []
-        return json.loads(content)
-    return []
+    return _load_json_file(HISTORY_FILE, [])
 
 
 def save_history(entry: dict):
@@ -70,13 +70,7 @@ def clear_history():
         json.dump([], f)
 
 def load_podcast_watchlist() -> list:
-    if os.path.exists(PODCAST_WATCHLIST_FILE):
-        with open(PODCAST_WATCHLIST_FILE, "r") as f:
-            content = f.read().strip()
-        if not content:
-            return []
-        return json.loads(content)
-    return []
+    return _load_json_file(PODCAST_WATCHLIST_FILE, [])
 
 def save_podcast_watchlist(data: list):
     with open(PODCAST_WATCHLIST_FILE, "w") as f:
@@ -239,6 +233,8 @@ if not youtube_api_key:
         "Ein YouTube API Key wird für den Doppelgänger-Podcast Scanner benötigt."
     )
 
+st.sidebar.caption(f"Version: `{os.environ.get('APP_VERSION', 'dev')}`")
+
 portfolio_data = load_portfolio()
 
 # ─── Tabs ─────────────────────────────────────────────────────────────────────
@@ -337,7 +333,7 @@ with tab_analyse:
             with st.expander(label, expanded=(i == 0)):
                 st.markdown(entry.get("result_text", ""))
                 if in_tok > 0 or out_tok > 0:
-                    cost_usd = (in_tok / 1_000_000) * 3.00 + (out_tok / 1_000_000) * 15.00
+                    cost_usd = (in_tok / 1_000_000) * CLAUDE_INPUT_PRICE_PER_M + (out_tok / 1_000_000) * CLAUDE_OUTPUT_PRICE_PER_M
                     st.caption(
                         f"🪙 **Token-Verbrauch:** {in_tok:,} Input | {out_tok:,} Output | "
                         f"**Geschätzte Kosten:** ${cost_usd:.4f}"
