@@ -302,7 +302,7 @@ with tab_analyse:
             label = f"🔎 {dt_label} — {target}"
             # Newest entry (i==0) expanded, rest collapsed
             with st.expander(label, expanded=(i == 0)):
-                st.markdown(entry.get("result_text", ""))
+                st.markdown(entry.get("result_text", "").replace("$", "&#36;"), unsafe_allow_html=True)
                 if in_tok > 0 or out_tok > 0:
                     cost_usd = (in_tok / 1_000_000) * CLAUDE_INPUT_PRICE_PER_M + (out_tok / 1_000_000) * CLAUDE_OUTPUT_PRICE_PER_M
                     st.caption(
@@ -385,9 +385,8 @@ with tab_podcast:
                 
     if st.session_state.get("last_podcast_result"):
         st.markdown("### Claude Analyse")
-        # Escape $ to prevent Streamlit from treating ticker/price symbols as LaTeX delimiters
-        safe_text = st.session_state["last_podcast_result"].replace("$", r"\$")
-        st.markdown(safe_text)
+        safe_text = st.session_state["last_podcast_result"].replace("$", "&#36;")
+        st.markdown(safe_text, unsafe_allow_html=True)
         
     st.divider()
     st.markdown("### 📋 Laufende Doppelgänger-Watchlist")
