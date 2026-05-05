@@ -214,19 +214,36 @@ st.set_page_config(page_title="K-Invest | Swing Trading Agent", page_icon="📈"
 st.markdown("""
 <style>
 /* Prevent horizontal scroll on mobile */
-html, body, [data-testid="stAppViewContainer"] {
-    overflow-x: hidden;
-    max-width: 100vw;
+html {
+    overflow-x: hidden !important;
+}
+body {
+    overflow-x: hidden !important;
+    width: 100% !important;
+    position: relative !important;
+}
+[data-testid="stApp"],
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+.main {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
 }
 .main .block-container {
-    max-width: 100%;
-    overflow-x: hidden;
+    max-width: 100% !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+}
+/* Sidebar must not push content sideways on mobile */
+[data-testid="stSidebar"] {
+    position: fixed !important;
 }
 /* Tables scroll internally instead of pushing the page */
 table {
-    display: block;
-    overflow-x: auto;
-    max-width: 100%;
+    display: block !important;
+    overflow-x: auto !important;
+    max-width: 100% !important;
 }
 </style>
 """, unsafe_allow_html=True)
