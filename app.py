@@ -246,63 +246,34 @@ tab_analyse, tab_depot, tab_watchlist, tab_podcast = st.tabs(["🚀 Analyse", "�
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_analyse:
 
-    # ── Toggle chips: what to analyse ─────────────────────────────────────────
+    # ── Action buttons ────────────────────────────────────────────────────────
     n_depot = len(portfolio_data["depot"])
     n_watch = len(portfolio_data["watchlist"])
 
-    if "analyse_depot"  not in st.session_state: st.session_state.analyse_depot  = True
-    if "analyse_watch"  not in st.session_state: st.session_state.analyse_watch  = True
+    btn_col1, btn_col2 = st.columns(2)
 
-    st.markdown("#### Was soll analysiert werden?")
-    chip_col1, chip_col2, spacer = st.columns([2, 2, 6])
+    def _run_analysis(depot_tickers: list, watch_tickers: list, target_label: str):
+        with st.spinner("Agent durchsucht das Web und analysiert Kurse... (Dies kann ca. 10–30 Sekunden dauern)"):
+            result = analyze_portfolio(depot_tickers, watch_tickers, api_key)
+        entry = {
+            "timestamp":     datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+            "target":        target_label,
+            "depot_tickers": depot_tickers,
+            "watch_tickers": watch_tickers,
+            "result_text":   result.get("text", str(result)) if isinstance(result, dict) else str(result),
+            "input_tokens":  result.get("input_tokens",  0) if isinstance(result, dict) else 0,
+            "output_tokens": result.get("output_tokens", 0) if isinstance(result, dict) else 0,
+        }
+        save_history(entry)
+        st.rerun()
 
-    with chip_col1:
-        depot_active = st.session_state.analyse_depot
-        label_depot  = f"{'✅' if depot_active else '⬜'} Depot ({n_depot})"
-        if st.button(label_depot, key="chip_depot", use_container_width=True):
-            st.session_state.analyse_depot = not depot_active
-            st.rerun()
+    with btn_col1:
+        if st.button(f"🚀 Depot analysieren ({n_depot})", disabled=not api_key or n_depot == 0, use_container_width=True, type="primary"):
+            _run_analysis([e["ticker"] for e in portfolio_data["depot"]], [], "Nur Depot")
 
-    with chip_col2:
-        watch_active = st.session_state.analyse_watch
-        label_watch  = f"{'✅' if watch_active else '⬜'} Watchlist ({n_watch})"
-        if st.button(label_watch, key="chip_watch", use_container_width=True):
-            st.session_state.analyse_watch = not watch_active
-            st.rerun()
-
-    st.divider()
-
-    # ── Start button ──────────────────────────────────────────────────────────
-    if st.button(
-        "🚀 Agenten-Analyse Starten",
-        disabled=not api_key,
-        use_container_width=True,
-        type="primary",
-    ):
-        depot_tickers = [e["ticker"] for e in portfolio_data["depot"]]  if st.session_state.analyse_depot  else []
-        watch_tickers = [e["ticker"] for e in portfolio_data["watchlist"]] if st.session_state.analyse_watch else []
-
-        if not depot_tickers and not watch_tickers:
-            st.error("Bitte wähle mindestens eine Gruppe aus und stelle sicher, dass sie Einträge enthält.")
-        else:
-            target_label = (
-                "Depot + Watchlist" if depot_tickers and watch_tickers
-                else ("Nur Depot" if depot_tickers else "Nur Watchlist")
-            )
-            with st.spinner("Agent durchsucht das Web und analysiert Kurse... (Dies kann ca. 10–30 Sekunden dauern)"):
-                result = analyze_portfolio(depot_tickers, watch_tickers, api_key)
-
-            entry = {
-                "timestamp":     datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-                "target":        target_label,
-                "depot_tickers": depot_tickers,
-                "watch_tickers": watch_tickers,
-                "result_text":   result.get("text", str(result)) if isinstance(result, dict) else str(result),
-                "input_tokens":  result.get("input_tokens",  0) if isinstance(result, dict) else 0,
-                "output_tokens": result.get("output_tokens", 0) if isinstance(result, dict) else 0,
-            }
-            save_history(entry)
-            st.rerun()
+    with btn_col2:
+        if st.button(f"🔭 Watchlist analysieren ({n_watch})", disabled=not api_key or n_watch == 0, use_container_width=True, type="primary"):
+            _run_analysis([], [e["ticker"] for e in portfolio_data["watchlist"]], "Nur Watchlist")
 
     # ── History ───────────────────────────────────────────────────────────────
     history = load_history()
