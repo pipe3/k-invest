@@ -10,28 +10,31 @@ Du bist ein spezialisierter Investment-Analyst für den "Doppelgänger Tech Talk
 </role>
 
 <instructions>
-1. Durchsuche das bereitgestellte Transkript gezielt nach Aktienanalysen, Tickersymbolen ($TKR) und Markteinschätzungen.
+1. Durchsuche das bereitgestellte Transkript gezielt nach Aktienanalysen, Tickersymbolen und Markteinschätzungen.
 2. Filtere die Informationen auf Swing-Trading-Relevanz (kurzfristige Katalysatoren, Earnings, Momentum).
 3. Achte besonders auf Pips Einschätzungen zu "Fair Value" vs. "Markt-Hype".
 4. Erwähne explizit, wenn Termine für die kommende Woche (Earnings, Konferenzen) genannt werden.
 5. Bleibe sachlich, präzise und direkt.
 6. Berücksichtige die "Bisherige Watchlist" (falls vorhanden) und aktualisiere den Status bestehender Aktien basierend auf der neuen Folge, oder entferne sie, wenn die These "tot" ist.
 7. DU MUSST ZWINGEND das Tool `save_doppelgaenger_watchlist` aufrufen, um die resultierende Watchlist strukturiert an das System zu übergeben.
+8. Alle Kurse, Preise, Kursziele und Stop-Loss-Werte IMMER in Euro (€) angeben. Niemals USD oder das Dollar-Zeichen verwenden.
+9. Beginne deine Antwort DIREKT mit der Zusammenfassung — kein einleitender Satz, keine Begrüßung.
 </instructions>
 
 <output_format>
 Gib deine Analyse textuell als Markdown aus. (Du musst zusätzlich das Tool aufrufen!)
+Beginne DIREKT mit dem Inhalt — kein einleitender Satz wie "Hier ist meine Analyse" oder ähnliches.
 
-### 1. Analyse der aktuellen Folge
-| Aktie (Ticker) | Empfehlung | Die These (Warum jetzt?) | Katalysator (Event/Datum) | Risiko |
-| :--- | :--- | :--- | :--- | :--- |
-| z.B. $META | BEOBACHTEN | Capex-Angst übertrieben | Bodenbildung abwarten | Hohe Zinsen |
-
-### 2. Laufende Doppelgänger-Watchlist
-Zeige diese Liste auch im Text noch einmal an.
+### 1. Zusammenfassung & Watchlist
 | Ticker | Einstiegs-These | Aktueller Status | Letztes Update |
 | :--- | :--- | :--- | :--- |
-| z.B. $GOOGL | Cloud-Wachstum | BULLISH (Momentum hält) | Aktuelle Folge |
+| z.B. GOOGL | Cloud-Wachstum | BULLISH (Momentum hält) | Aktuelle Folge |
+
+### 2. Analyse der aktuellen Folge
+Sortiere die Einträge zwingend in dieser Reihenfolge: zuerst KAUFEN, dann HALTEN, dann VERKAUFEN/BEOBACHTEN.
+| Aktie (Ticker) | Empfehlung | Die These (Warum jetzt?) | Katalysator (Event/Datum) | Risiko |
+| :--- | :--- | :--- | :--- | :--- |
+| z.B. META | KAUFEN | Capex-Angst übertrieben | Earnings 30.04. | Hohe Zinsen |
 </output_format>
 """
 
@@ -122,7 +125,7 @@ Hier ist das Transkript der aktuellen Folge ('{title}'):
             tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
             if tool_use_block is None:
                 return {"error": "Claude hat das Tool nicht aufgerufen."}
-            messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": tool_use_block.id, "content": "Gespeichert. Bitte gib nun die finale Markdown-Tabelle aus."}]})
+            messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": tool_use_block.id, "content": "Gespeichert. Gib jetzt die Analyse direkt aus — ohne einleitenden Satz, direkt mit der Zusammenfassung beginnend."}]})
             
             # Request second turn
             text_response = client.messages.create(

@@ -414,7 +414,9 @@ with tab_podcast:
                 
     if st.session_state.get("last_podcast_result"):
         st.markdown("### Claude Analyse")
-        st.markdown(st.session_state["last_podcast_result"])
+        # Escape $ to prevent Streamlit from treating ticker/price symbols as LaTeX delimiters
+        safe_text = st.session_state["last_podcast_result"].replace("$", r"\$")
+        st.markdown(safe_text)
         
     st.divider()
     st.markdown("### 📋 Laufende Doppelgänger-Watchlist")
