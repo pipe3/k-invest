@@ -402,8 +402,12 @@ _env_defaults = {
     "tavily_api_key": "TAVILY_API_KEY",
 }
 for ss_key, env_var in _env_defaults.items():
-    if ss_key not in st.session_state:
-        st.session_state[ss_key] = os.environ.get(env_var, "")
+    if not st.session_state.get(ss_key):
+        env_val = os.environ.get(env_var, "")
+        if env_val:
+            st.session_state[ss_key] = env_val
+        elif ss_key not in st.session_state:
+            st.session_state[ss_key] = ""
 
 # Sector checkbox defaults
 for key, _label, default in PREDEFINED_SECTORS:
