@@ -2,7 +2,6 @@ import json
 import anthropic
 from podcast_tools import get_latest_video_id, get_recent_videos, get_video_transcript
 
-MODEL      = "claude-sonnet-4-6"
 MAX_TOKENS = 8192
 
 SYSTEM_PROMPT = """<role>
@@ -69,27 +68,26 @@ TOOLS = [
     }
 ]
 
+
 def analyze_latest_podcast(youtube_api_key: str, anthropic_api_key: str, previous_watchlist: list,
-                           video_id: str = None, title: str = None) -> dict:
+                           video_id: str = None, title: str = None,
+                           model: str = "claude-sonnet-4-6") -> dict:
     if not youtube_api_key or not anthropic_api_key:
         return {"error": "API Keys für YouTube und Anthropic werden benötigt."}
 
-    # 1. Get Video — use provided id/title or fetch latest
     if video_id is None or title is None:
         video_info = get_latest_video_id(youtube_api_key, "@doppelgaengerio")
         if "error" in video_info:
             return {"error": video_info["error"]}
         video_id = video_info["video_id"]
         title    = video_info["title"]
-    
-    # 2. Get Transcript
+
     transcript = get_video_transcript(video_id)
     if transcript.startswith("Fehler beim Abrufen des Transkripts:"):
         return {"error": transcript}
-        
-    # 3. Call Anthropic
+
     client = anthropic.Anthropic(api_key=anthropic_api_key)
-    
+
     user_content = f"""<context>
 Hier ist die bisherige Watchlist:
 {json.dumps(previous_watchlist, indent=2)}
@@ -100,57 +98,51 @@ Hier ist das Transkript der aktuellen Folge ('{title}'):
 """
 
     messages = [{"role": "user", "content": user_content}]
-    
+
     try:
         response = client.messages.create(
-            model=MODEL,
+            model=model,
             max_tokens=MAX_TOKENS,
             system=SYSTEM_PROMPT,
             messages=messages,
             tools=TOOLS,
-            tool_choice={"type": "tool", "name": "save_doppelgaenger_watchlist"}
+            tool_choice={"type": "tool", "name": "save_doppelgaenger_watchlist"},
         )
-        
-        # We forced the tool choice, so we expect a tool use block
+
         result_text = ""
         new_watchlist = []
-        
+
         for block in response.content:
             if block.type == "text":
                 result_text += block.text + "\n"
             elif block.type == "tool_use":
                 if block.name == "save_doppelgaenger_watchlist":
                     new_watchlist = block.input.get("watchlist", [])
-                    
-        # Since we used tool_choice, Claude might not have output text. 
-        # If result_text is empty, we need a second turn to generate the text.
+
         if not result_text.strip():
-            # Add assistant message with tool call
             messages.append({"role": "assistant", "content": response.content})
-            # Add user message simulating tool result
             tool_use_block = next((b for b in response.content if b.type == "tool_use"), None)
             if tool_use_block is None:
                 return {"error": "Claude hat das Tool nicht aufgerufen."}
             messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": tool_use_block.id, "content": "Gespeichert. Gib jetzt die Analyse direkt aus — ohne einleitenden Satz, direkt mit der Zusammenfassung beginnend."}]})
-            
-            # Request second turn
+
             text_response = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=8192,
+                model=model,
+                max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
-                messages=messages
+                messages=messages,
             )
-            
+
             for block in text_response.content:
                 if block.type == "text":
                     result_text += block.text + "\n"
-        
+
         return {
             "success": True,
             "video_id": video_id,
             "title": title,
             "text": result_text,
-            "new_watchlist": new_watchlist
+            "new_watchlist": new_watchlist,
         }
     except Exception as e:
         return {"error": f"Anthropic API Fehler: {str(e)}"}

@@ -7,3 +7,4 @@ multitasking<=0.0.9
 requests
 google-api-python-client
 youtube-transcript-api
+tavily-python
