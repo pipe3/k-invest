@@ -18,6 +18,9 @@ pip-delete-this-directory.txt
 
 # Application State / Personal Data
 portfolio.json
+history.json
+doppelgaenger_watchlist.json
+podcast_history.json
 
 # IDE / Editor
 .vscode/

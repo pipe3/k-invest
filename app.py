@@ -10,6 +10,7 @@ from podcast_agent import analyze_latest_podcast
 PORTFOLIO_FILE = os.environ.get("PORTFOLIO_FILE", "portfolio.json")
 HISTORY_FILE   = os.environ.get("HISTORY_FILE",   "history.json")
 PODCAST_WATCHLIST_FILE = os.environ.get("PODCAST_WATCHLIST_FILE", "doppelgaenger_watchlist.json")
+PODCAST_HISTORY_FILE   = os.environ.get("PODCAST_HISTORY_FILE",   "podcast_history.json")
 MAX_HISTORY    = 10
 
 CLAUDE_INPUT_PRICE_PER_M  = 3.00   # USD per million tokens (claude-sonnet-4-6)
@@ -75,6 +76,20 @@ def load_podcast_watchlist() -> list:
 def save_podcast_watchlist(data: list):
     with open(PODCAST_WATCHLIST_FILE, "w") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+
+def load_podcast_history() -> list:
+    return _load_json_file(PODCAST_HISTORY_FILE, [])
+
+def save_podcast_history(entry: dict):
+    history = load_podcast_history()
+    history.insert(0, entry)
+    history = history[:MAX_HISTORY]
+    with open(PODCAST_HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=4, ensure_ascii=False)
+
+def clear_podcast_history():
+    with open(PODCAST_HISTORY_FILE, "w") as f:
+        json.dump([], f)
 
 
 # ─── Search widget ────────────────────────────────────────────────────────────
@@ -395,32 +410,52 @@ with tab_watchlist:
 with tab_podcast:
     st.subheader("🎧 Doppelgänger Tech Talk Scanner")
     st.markdown("Analysiert die neueste Folge von @doppelgaengerio auf Swing-Trading-Chancen.")
-    
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        if st.button("🚀 Neueste Folge analysieren", type="primary", use_container_width=True, disabled=not (api_key and youtube_api_key)):
-            podcast_wl = load_podcast_watchlist()
-            with st.spinner("Lade Video-Metadaten, Transkript und analysiere mit Claude... (Das kann ca. 30-60 Sekunden dauern)"):
-                result = analyze_latest_podcast(youtube_api_key, api_key, podcast_wl)
-                
-            if "error" in result:
-                st.error(result["error"])
-            else:
-                st.success(f"Erfolgreich analysiert: {result['title']}")
-                # Save new watchlist if returned
-                if result.get("new_watchlist"):
-                    save_podcast_watchlist(result["new_watchlist"])
-                
-                # Show results temporarily (could also save to a history if we want)
-                st.session_state["last_podcast_result"] = result["text"]
+
+    if st.button("🚀 Neueste Folge analysieren", type="primary", use_container_width=True, disabled=not (api_key and youtube_api_key)):
+        podcast_wl = load_podcast_watchlist()
+        with st.spinner("Lade Video-Metadaten, Transkript und analysiere mit Claude... (Das kann ca. 30–60 Sekunden dauern)"):
+            result = analyze_latest_podcast(youtube_api_key, api_key, podcast_wl)
+
+        if "error" in result:
+            st.error(result["error"])
+        else:
+            if result.get("new_watchlist"):
+                save_podcast_watchlist(result["new_watchlist"])
+            save_podcast_history({
+                "timestamp":        datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                "title":            result["title"],
+                "result_text":      result["text"],
+                "watchlist_snapshot": result.get("new_watchlist", []),
+            })
+            st.rerun()
+
+    # ── Analyse-Historie ──────────────────────────────────────────────────────
+    podcast_history = load_podcast_history()
+
+    if podcast_history:
+        ph_col1, ph_col2 = st.columns([8, 2])
+        with ph_col1:
+            st.subheader("📊 Analyse-Historie")
+        with ph_col2:
+            if st.button("🗑️ Alle löschen", key="clear_podcast_history"):
+                clear_podcast_history()
                 st.rerun()
-                
-    if st.session_state.get("last_podcast_result"):
-        st.markdown("### Claude Analyse")
-        safe_text = st.session_state["last_podcast_result"].replace("$", "&#36;")
-        st.markdown(safe_text, unsafe_allow_html=True)
-        
+
+        for i, entry in enumerate(podcast_history):
+            ts = entry.get("timestamp", "")
+            try:
+                dt_label = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S").strftime("%d.%m.%Y %H:%M")
+            except Exception:
+                dt_label = ts
+            label = f"🎙️ {dt_label} — {entry.get('title', '')}"
+            with st.expander(label, expanded=(i == 0)):
+                st.markdown(entry.get("result_text", "").replace("$", "&#36;"), unsafe_allow_html=True)
+                snapshot = entry.get("watchlist_snapshot", [])
+                if snapshot:
+                    st.divider()
+                    st.caption("📋 Watchlist-Snapshot dieser Analyse")
+                    st.dataframe(snapshot, use_container_width=True)
+
     st.divider()
     st.markdown("### 📋 Laufende Doppelgänger-Watchlist")
     podcast_wl = load_podcast_watchlist()
