@@ -83,7 +83,7 @@ def analyze_latest_podcast(youtube_api_key: str, anthropic_api_key: str, previou
     
     # 2. Get Transcript
     transcript = get_video_transcript(video_id)
-    if "Fehler" in transcript:
+    if transcript.startswith("Fehler beim Abrufen des Transkripts:"):
         return {"error": transcript}
         
     # 3. Call Anthropic
