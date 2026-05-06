@@ -1,6 +1,8 @@
 import streamlit as st
 import json
 import os
+import time
+import threading
 import requests
 import yfinance as yf
 from datetime import datetime
@@ -11,6 +13,7 @@ PORTFOLIO_FILE = os.environ.get("PORTFOLIO_FILE", "portfolio.json")
 HISTORY_FILE   = os.environ.get("HISTORY_FILE",   "history.json")
 PODCAST_WATCHLIST_FILE = os.environ.get("PODCAST_WATCHLIST_FILE", "doppelgaenger_watchlist.json")
 PODCAST_HISTORY_FILE   = os.environ.get("PODCAST_HISTORY_FILE",   "podcast_history.json")
+PODCAST_JOB_FILE       = os.environ.get("PODCAST_JOB_FILE",       "podcast_job.json")
 MAX_HISTORY    = 10
 
 CLAUDE_INPUT_PRICE_PER_M  = 3.00   # USD per million tokens (claude-sonnet-4-6)
@@ -90,6 +93,31 @@ def save_podcast_history(entry: dict):
 def clear_podcast_history():
     with open(PODCAST_HISTORY_FILE, "w") as f:
         json.dump([], f)
+
+def load_podcast_job() -> dict:
+    return _load_json_file(PODCAST_JOB_FILE, {"status": "idle"})
+
+def save_podcast_job(data: dict):
+    with open(PODCAST_JOB_FILE, "w") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+def _podcast_analysis_worker(youtube_api_key: str, api_key: str, podcast_wl: list):
+    try:
+        result = analyze_latest_podcast(youtube_api_key, api_key, podcast_wl)
+        if "error" in result:
+            save_podcast_job({"status": "error", "error": result["error"]})
+        else:
+            if result.get("new_watchlist"):
+                save_podcast_watchlist(result["new_watchlist"])
+            save_podcast_history({
+                "timestamp":          datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                "title":              result["title"],
+                "result_text":        result["text"],
+                "watchlist_snapshot": result.get("new_watchlist", []),
+            })
+            save_podcast_job({"status": "done"})
+    except Exception as e:
+        save_podcast_job({"status": "error", "error": str(e)})
 
 
 # ─── Search widget ────────────────────────────────────────────────────────────
@@ -411,22 +439,35 @@ with tab_podcast:
     st.subheader("🎧 Doppelgänger Tech Talk Scanner")
     st.markdown("Analysiert die neueste Folge von @doppelgaengerio auf Swing-Trading-Chancen.")
 
-    if st.button("🚀 Neueste Folge analysieren", type="primary", use_container_width=True, disabled=not (api_key and youtube_api_key)):
-        podcast_wl = load_podcast_watchlist()
-        with st.spinner("Lade Video-Metadaten, Transkript und analysiere mit Claude... (Das kann ca. 30–60 Sekunden dauern)"):
-            result = analyze_latest_podcast(youtube_api_key, api_key, podcast_wl)
+    job = load_podcast_job()
+    job_status = job.get("status", "idle")
 
-        if "error" in result:
-            st.error(result["error"])
-        else:
-            if result.get("new_watchlist"):
-                save_podcast_watchlist(result["new_watchlist"])
-            save_podcast_history({
-                "timestamp":        datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-                "title":            result["title"],
-                "result_text":      result["text"],
-                "watchlist_snapshot": result.get("new_watchlist", []),
-            })
+    if job_status == "running":
+        st.info("⏳ Analyse läuft im Hintergrund — du kannst das Handy weglegen, das Ergebnis erscheint automatisch in der Historie.")
+        st.caption(f"Gestartet um {job.get('started_at', '...')}")
+        time.sleep(4)
+        st.rerun()
+
+    elif job_status == "error":
+        st.error(f"Fehler bei der Analyse: {job.get('error', 'Unbekannter Fehler')}")
+        if st.button("❌ Fehler quittieren & erneut versuchen", use_container_width=True):
+            save_podcast_job({"status": "idle"})
+            st.rerun()
+
+    else:
+        if job_status == "done":
+            st.success("Analyse abgeschlossen — Ergebnis in der Historie gespeichert.")
+            save_podcast_job({"status": "idle"})
+
+        if st.button("🚀 Neueste Folge analysieren", type="primary", use_container_width=True, disabled=not (api_key and youtube_api_key)):
+            podcast_wl = load_podcast_watchlist()
+            save_podcast_job({"status": "running", "started_at": datetime.now().strftime("%H:%M:%S")})
+            t = threading.Thread(
+                target=_podcast_analysis_worker,
+                args=(youtube_api_key, api_key, podcast_wl),
+                daemon=True,
+            )
+            t.start()
             st.rerun()
 
     # ── Analyse-Historie ──────────────────────────────────────────────────────

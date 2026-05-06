@@ -21,6 +21,7 @@ portfolio.json
 history.json
 doppelgaenger_watchlist.json
 podcast_history.json
+podcast_job.json
 
 # IDE / Editor
 .vscode/
