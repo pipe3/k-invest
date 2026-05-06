@@ -23,6 +23,7 @@ doppelgaenger_watchlist.json
 podcast_history.json
 podcast_job.json
 depot_job.json
+data/*.json
 
 # IDE / Editor
 .vscode/

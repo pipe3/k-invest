@@ -13,6 +13,9 @@ services:
       - PORTFOLIO_FILE=/data/portfolio.json
       - HISTORY_FILE=/data/history.json
       - PODCAST_WATCHLIST_FILE=/data/doppelgaenger_watchlist.json
+      - PODCAST_HISTORY_FILE=/data/podcast_history.json
+      - PODCAST_JOB_FILE=/data/podcast_job.json
+      - DEPOT_JOB_FILE=/data/depot_job.json
     restart: unless-stopped
 
 volumes:
