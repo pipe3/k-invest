@@ -34,6 +34,32 @@ def get_latest_video_id(api_key: str, channel_handle: str = "@doppelgaengerio") 
     except Exception as e:
         return {"error": f"YouTube API Error: {str(e)}"}
 
+def get_recent_videos(api_key: str, n: int = 15) -> list:
+    """
+    Returns the n most recent videos for the podcast channel.
+    Each entry: {"video_id": "...", "title": "...", "published_at": "..."}
+    """
+    try:
+        youtube = build("youtube", "v3", developerKey=api_key)
+        channel_id = "UCZsFRBZ-5wNeFEqLFqnemcw"
+        result = youtube.search().list(
+            part="snippet",
+            channelId=channel_id,
+            order="date",
+            type="video",
+            maxResults=n
+        ).execute()
+        videos = []
+        for item in result.get("items", []):
+            videos.append({
+                "video_id":     item["id"]["videoId"],
+                "title":        item["snippet"]["title"],
+                "published_at": item["snippet"]["publishedAt"][:10],
+            })
+        return videos
+    except Exception as e:
+        return [{"error": f"YouTube API Error: {str(e)}"}]
+
 def get_video_transcript(video_id: str) -> str:
     """
     Downloads the transcript for a given YouTube video ID.

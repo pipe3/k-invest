@@ -8,6 +8,7 @@ import yfinance as yf
 from datetime import datetime
 from agent import analyze_portfolio
 from podcast_agent import analyze_latest_podcast
+from podcast_tools import get_recent_videos
 
 PORTFOLIO_FILE = os.environ.get("PORTFOLIO_FILE", "portfolio.json")
 HISTORY_FILE   = os.environ.get("HISTORY_FILE",   "history.json")
@@ -126,9 +127,11 @@ def _depot_analysis_worker(depot_tickers: list, watch_tickers: list, target_labe
     except Exception as e:
         save_depot_job({"status": "error", "error": str(e)})
 
-def _podcast_analysis_worker(youtube_api_key: str, api_key: str, podcast_wl: list):
+def _podcast_analysis_worker(youtube_api_key: str, api_key: str, podcast_wl: list,
+                             video_id: str = None, title: str = None):
     try:
-        result = analyze_latest_podcast(youtube_api_key, api_key, podcast_wl)
+        result = analyze_latest_podcast(youtube_api_key, api_key, podcast_wl,
+                                        video_id=video_id, title=title)
         if "error" in result:
             save_podcast_job({"status": "error", "error": result["error"]})
         else:
@@ -136,6 +139,7 @@ def _podcast_analysis_worker(youtube_api_key: str, api_key: str, podcast_wl: lis
                 save_podcast_watchlist(result["new_watchlist"])
             save_podcast_history({
                 "timestamp":          datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                "video_id":           result["video_id"],
                 "title":              result["title"],
                 "result_text":        result["text"],
                 "watchlist_snapshot": result.get("new_watchlist", []),
@@ -498,16 +502,63 @@ with tab_podcast:
             st.success("Analyse abgeschlossen — Ergebnis in der Historie gespeichert.")
             save_podcast_job({"status": "idle"})
 
-        if st.button("🚀 Neueste Folge analysieren", type="primary", use_container_width=True, disabled=not (api_key and youtube_api_key)):
+        keys_present = api_key and youtube_api_key
+
+        def _start_podcast_job(vid_id=None, vid_title=None):
             podcast_wl = load_podcast_watchlist()
             save_podcast_job({"status": "running", "started_at": datetime.now().strftime("%H:%M:%S")})
             t = threading.Thread(
                 target=_podcast_analysis_worker,
                 args=(youtube_api_key, api_key, podcast_wl),
+                kwargs={"video_id": vid_id, "title": vid_title},
                 daemon=True,
             )
             t.start()
+
+        # ── Neueste Folge ─────────────────────────────────────────────────────
+        if st.button("🚀 Neueste Folge analysieren", type="primary", use_container_width=True, disabled=not keys_present):
+            podcast_history_for_check = load_podcast_history()
+            analyzed_ids = {e.get("video_id") for e in podcast_history_for_check if e.get("video_id")}
+            # We don't know the latest video_id yet without an API call,
+            # so we start the job and let duplicate detection happen via the history display.
+            _start_podcast_job()
             st.rerun()
+
+        # ── Frühere Folgen ────────────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("**Oder frühere Folge analysieren:**")
+
+        if st.button("📋 Verfügbare Folgen laden", use_container_width=True, disabled=not keys_present):
+            videos = get_recent_videos(youtube_api_key, n=15)
+            if videos and "error" in videos[0]:
+                st.error(videos[0]["error"])
+            else:
+                st.session_state["podcast_recent_videos"] = videos
+
+        recent = st.session_state.get("podcast_recent_videos", [])
+        if recent:
+            podcast_history_ids = {e.get("video_id") for e in load_podcast_history() if e.get("video_id")}
+            options = {f"{v['published_at']} — {v['title']}": v for v in recent}
+            selected_label = st.selectbox("Folge wählen", list(options.keys()), label_visibility="collapsed")
+            selected = options[selected_label]
+
+            already_analyzed = selected["video_id"] in podcast_history_ids
+            if already_analyzed:
+                existing = next(
+                    (e for e in load_podcast_history() if e.get("video_id") == selected["video_id"]), None
+                )
+                ts_str = existing.get("timestamp", "")
+                try:
+                    dt_str = datetime.strptime(ts_str, "%Y-%m-%dT%H:%M:%S").strftime("%d.%m.%Y %H:%M")
+                except Exception:
+                    dt_str = ts_str
+                st.warning(f"Diese Folge wurde bereits am {dt_str} analysiert. Du kannst sie trotzdem erneut analysieren.")
+
+            btn_label = "🔄 Erneut analysieren" if already_analyzed else "🔍 Analyse starten"
+            if st.button(btn_label, use_container_width=True, type="primary"):
+                _start_podcast_job(vid_id=selected["video_id"], vid_title=selected["title"])
+                st.session_state.pop("podcast_recent_videos", None)
+                st.rerun()
 
     # ── Analyse-Historie ──────────────────────────────────────────────────────
     podcast_history = load_podcast_history()

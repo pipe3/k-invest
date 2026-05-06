@@ -1,6 +1,6 @@
 import json
 import anthropic
-from podcast_tools import get_latest_video_id, get_video_transcript
+from podcast_tools import get_latest_video_id, get_recent_videos, get_video_transcript
 
 MODEL      = "claude-sonnet-4-6"
 MAX_TOKENS = 8192
@@ -69,17 +69,18 @@ TOOLS = [
     }
 ]
 
-def analyze_latest_podcast(youtube_api_key: str, anthropic_api_key: str, previous_watchlist: list) -> dict:
+def analyze_latest_podcast(youtube_api_key: str, anthropic_api_key: str, previous_watchlist: list,
+                           video_id: str = None, title: str = None) -> dict:
     if not youtube_api_key or not anthropic_api_key:
         return {"error": "API Keys für YouTube und Anthropic werden benötigt."}
 
-    # 1. Get Latest Video
-    video_info = get_latest_video_id(youtube_api_key, "@doppelgaengerio")
-    if "error" in video_info:
-        return {"error": video_info["error"]}
-        
-    video_id = video_info["video_id"]
-    title = video_info["title"]
+    # 1. Get Video — use provided id/title or fetch latest
+    if video_id is None or title is None:
+        video_info = get_latest_video_id(youtube_api_key, "@doppelgaengerio")
+        if "error" in video_info:
+            return {"error": video_info["error"]}
+        video_id = video_info["video_id"]
+        title    = video_info["title"]
     
     # 2. Get Transcript
     transcript = get_video_transcript(video_id)
@@ -146,6 +147,7 @@ Hier ist das Transkript der aktuellen Folge ('{title}'):
         
         return {
             "success": True,
+            "video_id": video_id,
             "title": title,
             "text": result_text,
             "new_watchlist": new_watchlist
