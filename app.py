@@ -14,6 +14,7 @@ HISTORY_FILE   = os.environ.get("HISTORY_FILE",   "history.json")
 PODCAST_WATCHLIST_FILE = os.environ.get("PODCAST_WATCHLIST_FILE", "doppelgaenger_watchlist.json")
 PODCAST_HISTORY_FILE   = os.environ.get("PODCAST_HISTORY_FILE",   "podcast_history.json")
 PODCAST_JOB_FILE       = os.environ.get("PODCAST_JOB_FILE",       "podcast_job.json")
+DEPOT_JOB_FILE         = os.environ.get("DEPOT_JOB_FILE",         "depot_job.json")
 MAX_HISTORY    = 10
 
 CLAUDE_INPUT_PRICE_PER_M  = 3.00   # USD per million tokens (claude-sonnet-4-6)
@@ -100,6 +101,30 @@ def load_podcast_job() -> dict:
 def save_podcast_job(data: dict):
     with open(PODCAST_JOB_FILE, "w") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+
+def load_depot_job() -> dict:
+    return _load_json_file(DEPOT_JOB_FILE, {"status": "idle"})
+
+def save_depot_job(data: dict):
+    with open(DEPOT_JOB_FILE, "w") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+def _depot_analysis_worker(depot_tickers: list, watch_tickers: list, target_label: str, api_key: str):
+    try:
+        result = analyze_portfolio(depot_tickers, watch_tickers, api_key)
+        entry = {
+            "timestamp":     datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+            "target":        target_label,
+            "depot_tickers": depot_tickers,
+            "watch_tickers": watch_tickers,
+            "result_text":   result.get("text", str(result)) if isinstance(result, dict) else str(result),
+            "input_tokens":  result.get("input_tokens",  0) if isinstance(result, dict) else 0,
+            "output_tokens": result.get("output_tokens", 0) if isinstance(result, dict) else 0,
+        }
+        save_history(entry)
+        save_depot_job({"status": "done"})
+    except Exception as e:
+        save_depot_job({"status": "error", "error": str(e)})
 
 def _podcast_analysis_worker(youtube_api_key: str, api_key: str, podcast_wl: list):
     try:
@@ -322,34 +347,48 @@ tab_analyse, tab_depot, tab_watchlist, tab_podcast = st.tabs(["🚀 Analyse", "�
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_analyse:
 
-    # ── Action buttons ────────────────────────────────────────────────────────
     n_depot = len(portfolio_data["depot"])
     n_watch = len(portfolio_data["watchlist"])
 
-    btn_col1, btn_col2 = st.columns(2)
+    depot_job = load_depot_job()
+    depot_job_status = depot_job.get("status", "idle")
 
-    def _run_analysis(depot_tickers: list, watch_tickers: list, target_label: str):
-        with st.spinner("Agent durchsucht das Web und analysiert Kurse... (Dies kann ca. 10–30 Sekunden dauern)"):
-            result = analyze_portfolio(depot_tickers, watch_tickers, api_key)
-        entry = {
-            "timestamp":     datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-            "target":        target_label,
-            "depot_tickers": depot_tickers,
-            "watch_tickers": watch_tickers,
-            "result_text":   result.get("text", str(result)) if isinstance(result, dict) else str(result),
-            "input_tokens":  result.get("input_tokens",  0) if isinstance(result, dict) else 0,
-            "output_tokens": result.get("output_tokens", 0) if isinstance(result, dict) else 0,
-        }
-        save_history(entry)
+    if depot_job_status == "running":
+        st.info("⏳ Analyse läuft im Hintergrund — du kannst das Handy weglegen, das Ergebnis erscheint automatisch in der Historie.")
+        st.caption(f"Gestartet um {depot_job.get('started_at', '...')}")
+        time.sleep(4)
         st.rerun()
 
-    with btn_col1:
-        if st.button(f"🚀 Depot analysieren ({n_depot})", disabled=not api_key or n_depot == 0, use_container_width=True, type="primary"):
-            _run_analysis([e["ticker"] for e in portfolio_data["depot"]], [], "Nur Depot")
+    elif depot_job_status == "error":
+        st.error(f"Fehler bei der Analyse: {depot_job.get('error', 'Unbekannter Fehler')}")
+        if st.button("❌ Fehler quittieren & erneut versuchen", use_container_width=True):
+            save_depot_job({"status": "idle"})
+            st.rerun()
 
-    with btn_col2:
-        if st.button(f"🔭 Watchlist analysieren ({n_watch})", disabled=not api_key or n_watch == 0, use_container_width=True, type="primary"):
-            _run_analysis([], [e["ticker"] for e in portfolio_data["watchlist"]], "Nur Watchlist")
+    else:
+        if depot_job_status == "done":
+            st.success("Analyse abgeschlossen — Ergebnis in der Historie gespeichert.")
+            save_depot_job({"status": "idle"})
+
+        btn_col1, btn_col2 = st.columns(2)
+
+        def _start_analysis(depot_tickers: list, watch_tickers: list, target_label: str):
+            save_depot_job({"status": "running", "started_at": datetime.now().strftime("%H:%M:%S")})
+            t = threading.Thread(
+                target=_depot_analysis_worker,
+                args=(depot_tickers, watch_tickers, target_label, api_key),
+                daemon=True,
+            )
+            t.start()
+            st.rerun()
+
+        with btn_col1:
+            if st.button(f"🚀 Depot analysieren ({n_depot})", disabled=not api_key or n_depot == 0, use_container_width=True, type="primary"):
+                _start_analysis([e["ticker"] for e in portfolio_data["depot"]], [], "Nur Depot")
+
+        with btn_col2:
+            if st.button(f"🔭 Watchlist analysieren ({n_watch})", disabled=not api_key or n_watch == 0, use_container_width=True, type="primary"):
+                _start_analysis([], [e["ticker"] for e in portfolio_data["watchlist"]], "Nur Watchlist")
 
     # ── History ───────────────────────────────────────────────────────────────
     history = load_history()
