@@ -22,6 +22,7 @@ services:
       - SETTINGS_FILE=/data/settings.json
       - DISCOVERY_HISTORY_FILE=/data/discovery_history.json
       - DISCOVERY_JOB_FILE=/data/discovery_job.json
+      - TOKEN_LOG_FILE=/data/token_log.json
     restart: unless-stopped
 
 volumes:

@@ -111,6 +111,8 @@ Hier ist das Transkript der aktuellen Folge ('{title}'):
             tool_choice={"type": "tool", "name": "save_doppelgaenger_watchlist"},
         )
 
+        total_input_tokens  = response.usage.input_tokens
+        total_output_tokens = response.usage.output_tokens
         result_text = ""
         new_watchlist = []
 
@@ -135,6 +137,9 @@ Hier ist das Transkript der aktuellen Folge ('{title}'):
                 messages=messages,
             )
 
+            total_input_tokens  += text_response.usage.input_tokens
+            total_output_tokens += text_response.usage.output_tokens
+
             for block in text_response.content:
                 if block.type == "text":
                     result_text += block.text + "\n"
@@ -145,6 +150,8 @@ Hier ist das Transkript der aktuellen Folge ('{title}'):
             "title": title,
             "text": result_text,
             "new_watchlist": new_watchlist,
+            "input_tokens":  total_input_tokens,
+            "output_tokens": total_output_tokens,
         }
     except Exception as e:
         return {"error": f"Anthropic API Fehler: {str(e)}"}

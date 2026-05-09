@@ -24,6 +24,7 @@ DEPOT_JOB_FILE         = os.environ.get("DEPOT_JOB_FILE",         "depot_job.jso
 SETTINGS_FILE          = os.environ.get("SETTINGS_FILE",          "settings.json")
 DISCOVERY_HISTORY_FILE = os.environ.get("DISCOVERY_HISTORY_FILE", "discovery_history.json")
 DISCOVERY_JOB_FILE     = os.environ.get("DISCOVERY_JOB_FILE",     "discovery_job.json")
+TOKEN_LOG_FILE         = os.environ.get("TOKEN_LOG_FILE",         "token_log.json")
 
 MAX_HISTORY = 10
 
@@ -178,6 +179,78 @@ def save_discovery_job(data: dict):
     _save_json_file(DISCOVERY_JOB_FILE, data)
 
 
+# ─── Token log ────────────────────────────────────────────────────────────────
+
+def load_token_log() -> list:
+    return _load_json_file(TOKEN_LOG_FILE, [])
+
+
+def log_token_usage(agent: str, model: str, input_tokens: int, output_tokens: int):
+    cost = (input_tokens / 1_000_000 * CLAUDE_INPUT_PRICE_PER_M) + \
+           (output_tokens / 1_000_000 * CLAUDE_OUTPUT_PRICE_PER_M)
+    entry = {
+        "timestamp":     datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "agent":         agent,
+        "model":         model,
+        "input_tokens":  input_tokens,
+        "output_tokens": output_tokens,
+        "cost_usd":      round(cost, 6),
+    }
+    log = load_token_log()
+    log.append(entry)
+    _save_json_file(TOKEN_LOG_FILE, log)
+
+
+def clear_token_log():
+    _save_json_file(TOKEN_LOG_FILE, [])
+
+
+def _token_log_stats(log: list) -> tuple[dict, list]:
+    from datetime import date, timedelta
+    today = date.today()
+    week_start  = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+
+    agents = ["depot", "podcast", "discovery"]
+    def zero():
+        return {"cost": 0.0, "input": 0, "output": 0, "by_agent": {a: 0.0 for a in agents}}
+    stats  = {"today": zero(), "week": zero(), "month": zero()}
+    monthly: dict[str, float] = {}
+
+    for entry in log:
+        try:
+            ts = date.fromisoformat(entry["timestamp"][:10])
+        except (ValueError, KeyError):
+            continue
+        cost    = entry.get("cost_usd", 0.0)
+        agent   = entry.get("agent", "other")
+        inp     = entry.get("input_tokens", 0)
+        out     = entry.get("output_tokens", 0)
+        mk      = entry["timestamp"][:7]
+        monthly[mk] = monthly.get(mk, 0.0) + cost
+
+        for key, cutoff in [("today", today), ("week", week_start), ("month", month_start)]:
+            if ts >= cutoff:
+                stats[key]["cost"]  += cost
+                stats[key]["input"] += inp
+                stats[key]["output"] += out
+                if agent in stats[key]["by_agent"]:
+                    stats[key]["by_agent"][agent] += cost
+
+    now = date.today()
+    monthly_rows = []
+    for i in range(11, -1, -1):
+        y, m = now.year, now.month - i
+        while m <= 0:
+            m += 12
+            y -= 1
+        mk    = f"{y:04d}-{m:02d}"
+        label = date(y, m, 1).strftime("%b %Y")
+        monthly_rows.append({"Monat": label, "Kosten (USD)": monthly.get(mk, 0.0)})
+
+    return stats, monthly_rows
+
+
 # ─── Search config ────────────────────────────────────────────────────────────
 
 def get_search_config(settings: dict) -> dict:
@@ -221,16 +294,19 @@ def _depot_analysis_worker(depot_tickers, watch_tickers, target_label,
                     })
             save_portfolio(portfolio)
 
+        inp = result.get("input_tokens",  0) if isinstance(result, dict) else 0
+        out = result.get("output_tokens", 0) if isinstance(result, dict) else 0
         entry = {
             "timestamp":     datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
             "target":        target_label,
             "depot_tickers": depot_tickers,
             "watch_tickers": watch_tickers,
             "result_text":   result.get("text", str(result)) if isinstance(result, dict) else str(result),
-            "input_tokens":  result.get("input_tokens",  0) if isinstance(result, dict) else 0,
-            "output_tokens": result.get("output_tokens", 0) if isinstance(result, dict) else 0,
+            "input_tokens":  inp,
+            "output_tokens": out,
         }
         save_history(entry)
+        log_token_usage("depot", model, inp, out)
         save_depot_job({"status": "done", "price_target_changes": changes})
     except Exception as e:
         save_depot_job({"status": "error", "error": str(e)})
@@ -253,6 +329,7 @@ def _podcast_analysis_worker(youtube_api_key, api_key, podcast_wl, model, search
                 "result_text":        result["text"],
                 "watchlist_snapshot": result.get("new_watchlist", []),
             })
+            log_token_usage("podcast", model, result.get("input_tokens", 0), result.get("output_tokens", 0))
             save_podcast_job({"status": "done"})
     except Exception as e:
         save_podcast_job({"status": "error", "error": str(e)})
@@ -264,15 +341,18 @@ def _discovery_worker(sectors, n_picks, excluded_tickers, api_key, model, search
         if "error" in result:
             save_discovery_job({"status": "error", "error": result["error"]})
         else:
+            inp = result.get("input_tokens",  0)
+            out = result.get("output_tokens", 0)
             save_discovery_history({
                 "timestamp":          datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
                 "sectors":            sectors,
                 "n_picks":            n_picks,
                 "result_text":        result.get("text", ""),
                 "discovered_tickers": result.get("tickers", []),
-                "input_tokens":       result.get("input_tokens",  0),
-                "output_tokens":      result.get("output_tokens", 0),
+                "input_tokens":       inp,
+                "output_tokens":      out,
             })
+            log_token_usage("discovery", model, inp, out)
             save_discovery_job({"status": "done"})
     except Exception as e:
         save_discovery_job({"status": "error", "error": str(e)})
@@ -949,3 +1029,38 @@ with tab_settings:
         st.rerun()
 
     st.caption(f"Version: `{os.environ.get('APP_VERSION', 'dev')}`")
+
+    # ── Kosten & Verbrauch ────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 💰 Kosten & Token-Verbrauch")
+
+    token_log = load_token_log()
+    if not token_log:
+        st.info("Noch keine Analyse-Runs aufgezeichnet.")
+    else:
+        stats, monthly_rows = _token_log_stats(token_log)
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Heute",        f"${stats['today']['cost']:.4f}",
+                  f"{(stats['today']['input']+stats['today']['output']):,} Tokens")
+        c2.metric("Diese Woche",  f"${stats['week']['cost']:.4f}",
+                  f"{(stats['week']['input']+stats['week']['output']):,} Tokens")
+        c3.metric("Dieser Monat", f"${stats['month']['cost']:.4f}",
+                  f"{(stats['month']['input']+stats['month']['output']):,} Tokens")
+
+        st.markdown("**Nach Agent (dieser Monat)**")
+        agent_labels = {"depot": "💼 Depot", "podcast": "🎧 Podcast", "discovery": "🔍 Discovery"}
+        agent_cols = st.columns(3)
+        for col, agent in zip(agent_cols, ["depot", "podcast", "discovery"]):
+            col.metric(agent_labels[agent], f"${stats['month']['by_agent'].get(agent, 0):.4f}")
+
+        st.markdown("**12-Monats-Übersicht**")
+        import pandas as pd
+        df = pd.DataFrame(monthly_rows)
+        df["Kosten (USD)"] = df["Kosten (USD)"].apply(lambda x: f"${x:.4f}")
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+    if token_log and st.button("🗑️ Token-Log löschen", use_container_width=True):
+        clear_token_log()
+        st.success("Token-Log gelöscht.")
+        st.rerun()
