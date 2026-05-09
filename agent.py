@@ -1,5 +1,6 @@
 import anthropic
-from tools import get_stock_price_and_momentum, search_recent_news, ANTHROPIC_TOOLS
+
+from tools import ANTHROPIC_TOOLS, get_stock_price_and_momentum, search_recent_news
 
 MAX_TOKENS = 8192
 
@@ -12,6 +13,11 @@ BEWERTE JEDE AKTIE nach diesen Kriterien:
 2. Gibt es fundamentale News/Katalysatoren, die den aktuellen Trade rechtfertigen?
 
 WÄHRUNG: Alle Kurse, Preise, Kursziele und Stop-Loss-Werte IMMER in Euro (€) angeben. Niemals USD oder das Dollar-Zeichen ($) verwenden.
+
+KURSZIELE & STOP-LOSS:
+Falls Depot-Aktien analysiert werden, MUSST du am Ende — nach der Textanalyse — das Tool `save_price_targets` aufrufen.
+Setze für jede Depot-Aktie ein realistisches Kursziel und einen Stop-Loss basierend auf der Analyse (technische Level, Unterstützung/Widerstand, ATR).
+Falls bereits Werte existieren: überprüfe sie und passe sie an die aktuelle Marktlage an.
 
 DEIN OUTPUT:
 Beginne DIREKT mit der Zusammenfassungs-Tabelle — kein einleitender Satz, keine Begrüßung.
@@ -39,7 +45,8 @@ Nutze die bereitgestellten Tools, um Fakten zu sammeln, bevor du antwortest! Wen
 
 
 def analyze_portfolio(depot: list, watchlist: list, api_key: str,
-                      model: str, search_config: dict) -> dict:
+                      model: str, search_config: dict,
+                      current_targets: dict = None) -> dict:
     if not api_key:
         return {"text": "Fehler: Anthropic API Key fehlt.", "input_tokens": 0, "output_tokens": 0}
 
@@ -54,12 +61,31 @@ def analyze_portfolio(depot: list, watchlist: list, api_key: str,
     google_cx_id = search_config.get("google_cx_id", "")
     tavily_api_key = search_config.get("tavily_api_key", "")
 
-    user_message = f"Bitte analysiere diese Aktien für mein Swing-Trading: {', '.join(stocks_to_analyze)}."
+    parts = []
+    if depot:
+        parts.append(f"Depot (meine aktuellen Positionen): {', '.join(depot)}")
+    if watchlist:
+        parts.append(f"Watchlist (zur Beobachtung): {', '.join(watchlist)}")
+    if depot:
+        target_lines = []
+        for ticker in depot:
+            t = (current_targets or {}).get(ticker, {})
+            if t.get("kursziel") is not None:
+                target_lines.append(f"  - {ticker}: Kursziel {t['kursziel']:.2f} €, Stop-Loss {t['stop_loss']:.2f} €")
+            else:
+                target_lines.append(f"  - {ticker}: noch kein Kursziel gesetzt")
+        parts.append("Aktuelle Kursziele und Stop-Loss:\n" + "\n".join(target_lines))
+        parts.append(
+            f"Analysiere alle Aktien, dann rufe `save_price_targets` auf und setze für jede "
+            f"Depot-Aktie ({', '.join(depot)}) ein Kursziel und Stop-Loss in EUR."
+        )
+    user_message = "\n\n".join(parts)
     messages = [{"role": "user", "content": user_message}]
 
     try:
         total_input_tokens = 0
         total_output_tokens = 0
+        saved_targets = {}
 
         while True:
             response = client.messages.create(
@@ -80,11 +106,13 @@ def analyze_portfolio(depot: list, watchlist: list, api_key: str,
                             "text": block.text,
                             "input_tokens": total_input_tokens,
                             "output_tokens": total_output_tokens,
+                            "price_targets": saved_targets,
                         }
                 return {
                     "text": "Keine finale Text-Antwort erhalten.",
                     "input_tokens": total_input_tokens,
                     "output_tokens": total_output_tokens,
+                    "price_targets": saved_targets,
                 }
 
             messages.append({"role": "assistant", "content": response.content})
@@ -103,6 +131,13 @@ def analyze_portfolio(depot: list, watchlist: list, api_key: str,
                             google_cx_id=google_cx_id,
                             tavily_api_key=tavily_api_key,
                         )
+                    elif block.name == "save_price_targets":
+                        for t in block.input.get("targets", []):
+                            saved_targets[t["ticker"]] = {
+                                "kursziel": t.get("kursziel"),
+                                "stop_loss": t.get("stop_loss"),
+                            }
+                        result = "Kursziele und Stop-Loss gespeichert."
                     else:
                         result = f"Unbekanntes Tool: {block.name}"
                     tool_results.append({
@@ -114,4 +149,4 @@ def analyze_portfolio(depot: list, watchlist: list, api_key: str,
             messages.append({"role": "user", "content": tool_results})
 
     except Exception as e:
-        return {"text": f"Fehler bei der Anthropic-API Kommunikation: {str(e)}", "input_tokens": 0, "output_tokens": 0}
+        return {"text": f"Fehler bei der Anthropic-API Kommunikation: {str(e)}", "input_tokens": 0, "output_tokens": 0, "price_targets": {}}

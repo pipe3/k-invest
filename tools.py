@@ -92,6 +92,29 @@ def search_recent_news(query: str, max_results: int = 5,
 
 ANTHROPIC_TOOLS = [
     {
+        'name': 'save_price_targets',
+        'description': 'Speichert Kursziel und Stop-Loss für Depot-Aktien. Nach der Analyse aufrufen — ein Eintrag pro Depot-Aktie.',
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'targets': {
+                    'type': 'array',
+                    'description': 'Liste der Kursziele und Stop-Loss für alle Depot-Aktien',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'ticker': {'type': 'string', 'description': 'Ticker-Symbol, z.B. NVDA'},
+                            'kursziel': {'type': 'number', 'description': 'Kursziel in EUR'},
+                            'stop_loss': {'type': 'number', 'description': 'Stop-Loss-Kurs in EUR'},
+                        },
+                        'required': ['ticker', 'kursziel', 'stop_loss'],
+                    },
+                }
+            },
+            'required': ['targets'],
+        }
+    },
+    {
         'name': 'get_stock_price_and_momentum',
         'description': 'Holt aktuelle Marktdaten, Preise und kurzfristiges Momentum (Performance letzte 5 Tage, Volumina) für eine Aktie.',
         'input_schema': {

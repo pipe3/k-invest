@@ -1,15 +1,17 @@
-import streamlit as st
 import json
 import os
-import time
 import threading
-import requests
-import yfinance as yf
+import time
 from datetime import datetime
+
+import requests
+import streamlit as st
+import yfinance as yf
+
 from agent import analyze_portfolio
+from discovery_agent import discover_stocks
 from podcast_agent import analyze_latest_podcast
 from podcast_tools import get_recent_videos
-from discovery_agent import discover_stocks
 
 # ─── File paths ───────────────────────────────────────────────────────────────
 
@@ -190,9 +192,35 @@ def get_search_config(settings: dict) -> dict:
 # ─── Background workers ───────────────────────────────────────────────────────
 
 def _depot_analysis_worker(depot_tickers, watch_tickers, target_label,
-                            api_key, model, search_config):
+                            api_key, model, search_config, current_targets):
     try:
-        result = analyze_portfolio(depot_tickers, watch_tickers, api_key, model, search_config)
+        result = analyze_portfolio(depot_tickers, watch_tickers, api_key, model, search_config,
+                                   current_targets=current_targets)
+        new_targets = result.get("price_targets", {}) if isinstance(result, dict) else {}
+
+        changes = []
+        if new_targets:
+            portfolio = load_portfolio()
+            for entry in portfolio["depot"]:
+                ticker = entry["ticker"]
+                if ticker not in new_targets:
+                    continue
+                old_kursziel  = entry.get("kursziel")
+                old_stop_loss = entry.get("stop_loss")
+                new_kursziel  = new_targets[ticker]["kursziel"]
+                new_stop_loss = new_targets[ticker]["stop_loss"]
+                entry["kursziel"]  = new_kursziel
+                entry["stop_loss"] = new_stop_loss
+                if old_kursziel != new_kursziel or old_stop_loss != new_stop_loss:
+                    changes.append({
+                        "ticker":        ticker,
+                        "kursziel_old":  old_kursziel,
+                        "kursziel_new":  new_kursziel,
+                        "stop_loss_old": old_stop_loss,
+                        "stop_loss_new": new_stop_loss,
+                    })
+            save_portfolio(portfolio)
+
         entry = {
             "timestamp":     datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
             "target":        target_label,
@@ -203,7 +231,7 @@ def _depot_analysis_worker(depot_tickers, watch_tickers, target_label,
             "output_tokens": result.get("output_tokens", 0) if isinstance(result, dict) else 0,
         }
         save_history(entry)
-        save_depot_job({"status": "done"})
+        save_depot_job({"status": "done", "price_target_changes": changes})
     except Exception as e:
         save_depot_job({"status": "error", "error": str(e)})
 
@@ -318,19 +346,37 @@ def render_entry_list(list_key: str, uid_prefix: str, portfolio_data: dict):
     move_icon = "➡️" if is_depot else "⬅️"
     move_help = "In Watchlist verschieben" if is_depot else "Ins Depot verschieben"
     target_name = "Watchlist" if is_depot else "Depot"
+    changed_tickers = {c["ticker"] for c in st.session_state.get("price_target_changes", [])} if is_depot else set()
 
     for entry in list(portfolio_data[list_key]):
         ticker = entry["ticker"]
         name   = entry.get("name", ticker)
         is_pending = st.session_state.get(pending_key) == ticker
 
-        col_name, col_move, col_btn = st.columns([9, 1, 1])
+        if is_depot:
+            col_name, col_targets, col_move, col_btn = st.columns([5, 4, 1, 1])
+        else:
+            col_name, col_move, col_btn = st.columns([9, 1, 1])
 
         with col_name:
             if is_pending:
                 st.markdown(f"<span style='color: #888; text-decoration: line-through;'>**{name}** ({ticker})</span>", unsafe_allow_html=True)
             else:
                 st.markdown(f"**{name}** ({ticker})")
+
+        if is_depot:
+            with col_targets:
+                kursziel  = entry.get("kursziel")
+                stop_loss = entry.get("stop_loss")
+                changed   = ticker in changed_tickers
+                badge     = " ⚠️" if changed else ""
+                if kursziel is not None:
+                    st.markdown(
+                        f"🎯 {kursziel:.2f} €&nbsp;&nbsp;🛑 {stop_loss:.2f} €{badge}",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.caption("Noch kein Kursziel")
 
         with col_move:
             if not is_pending:
@@ -452,16 +498,40 @@ with tab_analyse:
 
     else:
         if depot_job_status == "done":
+            changes = depot_job.get("price_target_changes", [])
+            if changes:
+                st.session_state["price_target_changes"] = changes
             st.success("Analyse abgeschlossen — Ergebnis in der Historie gespeichert.")
             save_depot_job({"status": "idle"})
+
+        pt_changes = st.session_state.get("price_target_changes", [])
+        if pt_changes:
+            with st.expander("⚠️ Kursziele & Stop-Loss aktualisiert", expanded=True):
+                for c in pt_changes:
+                    ticker = c["ticker"]
+                    parts_str = []
+                    if c.get("kursziel_old") != c.get("kursziel_new"):
+                        old = f"{c['kursziel_old']:.2f} €" if c["kursziel_old"] is not None else "–"
+                        new = f"{c['kursziel_new']:.2f} €" if c["kursziel_new"] is not None else "–"
+                        parts_str.append(f"Kursziel: {old} → {new}")
+                    if c.get("stop_loss_old") != c.get("stop_loss_new"):
+                        old = f"{c['stop_loss_old']:.2f} €" if c["stop_loss_old"] is not None else "–"
+                        new = f"{c['stop_loss_new']:.2f} €" if c["stop_loss_new"] is not None else "–"
+                        parts_str.append(f"Stop-Loss: {old} → {new}")
+                    if parts_str:
+                        st.markdown(f"**{ticker}**: " + " | ".join(parts_str))
 
         def _start_analysis(depot_tickers, watch_tickers, target_label):
             model = settings.get("model", "claude-sonnet-4-6")
             sc = get_search_config(settings)
+            current_targets = {
+                e["ticker"]: {"kursziel": e.get("kursziel"), "stop_loss": e.get("stop_loss")}
+                for e in portfolio_data["depot"]
+            }
             save_depot_job({"status": "running", "started_at": datetime.now().strftime("%H:%M:%S")})
             threading.Thread(
                 target=_depot_analysis_worker,
-                args=(depot_tickers, watch_tickers, target_label, api_key, model, sc),
+                args=(depot_tickers, watch_tickers, target_label, api_key, model, sc, current_targets),
                 daemon=True,
             ).start()
             st.rerun()
