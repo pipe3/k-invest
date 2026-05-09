@@ -1,6 +1,6 @@
-import os
 from googleapiclient.discovery import build
 from youtube_transcript_api import YouTubeTranscriptApi
+
 
 def get_latest_video_id(api_key: str, channel_handle: str = "@doppelgaengerio") -> dict:
     """

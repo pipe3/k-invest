@@ -1,7 +1,7 @@
 services:
   k-invest:
     build:
-      context: https://github.com/pipe3/k-invest.git
+      context: https://github.com/pipe3/k-invest.git#feature/discovery-tab
       dockerfile: Dockerfile
     ports:
       - "8501:8501"
@@ -10,12 +10,18 @@ services:
     environment:
       - ANTHROPIC_API_KEY=sk-ant-DEIN-KEY-HIER
       - YOUTUBE_API_KEY=DEIN-YOUTUBE-KEY-HIER
+      - GOOGLE_SEARCH_API_KEY=
+      - GOOGLE_CX_ID=
+      - TAVILY_API_KEY=
       - PORTFOLIO_FILE=/data/portfolio.json
       - HISTORY_FILE=/data/history.json
       - PODCAST_WATCHLIST_FILE=/data/doppelgaenger_watchlist.json
       - PODCAST_HISTORY_FILE=/data/podcast_history.json
       - PODCAST_JOB_FILE=/data/podcast_job.json
       - DEPOT_JOB_FILE=/data/depot_job.json
+      - SETTINGS_FILE=/data/settings.json
+      - DISCOVERY_HISTORY_FILE=/data/discovery_history.json
+      - DISCOVERY_JOB_FILE=/data/discovery_job.json
     restart: unless-stopped
 
 volumes:
