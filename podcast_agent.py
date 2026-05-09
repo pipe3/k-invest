@@ -1,6 +1,8 @@
 import json
+
 import anthropic
-from podcast_tools import get_latest_video_id, get_recent_videos, get_video_transcript
+
+from podcast_tools import get_latest_video_id, get_video_transcript
 
 MAX_TOKENS = 8192
 

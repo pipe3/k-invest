@@ -1,7 +1,9 @@
-import anthropic
 import json
 import re
-from tools import get_stock_price_and_momentum, search_recent_news, ANTHROPIC_TOOLS
+
+import anthropic
+
+from tools import ANTHROPIC_TOOLS, get_stock_price_and_momentum, search_recent_news
 
 MAX_TOKENS = 8192
 

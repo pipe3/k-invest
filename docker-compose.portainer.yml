@@ -1,7 +1,7 @@
 services:
   k-invest:
     build:
-      context: https://github.com/pipe3/k-invest.git
+      context: https://github.com/pipe3/k-invest.git#feature/discovery-tab
       dockerfile: Dockerfile
     ports:
       - "8501:8501"
