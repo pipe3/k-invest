@@ -792,13 +792,13 @@ with tab_podcast:
                 if snapshot:
                     st.divider()
                     st.caption("📋 Watchlist-Snapshot dieser Analyse")
-                    st.dataframe(snapshot, use_container_width=True)
+                    st.dataframe(snapshot, width="stretch")
 
     st.divider()
     st.markdown("### 📋 Laufende Doppelgänger-Watchlist")
     podcast_wl = load_podcast_watchlist()
     if podcast_wl:
-        st.dataframe(podcast_wl, use_container_width=True)
+        st.dataframe(podcast_wl, width="stretch")
     else:
         st.info("Die Watchlist ist aktuell leer. Führe eine Analyse aus, um sie zu füllen.")
 
@@ -1058,7 +1058,7 @@ with tab_settings:
         import pandas as pd
         df = pd.DataFrame(monthly_rows)
         df["Kosten (USD)"] = df["Kosten (USD)"].apply(lambda x: f"${x:.4f}")
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
 
     if token_log and st.button("🗑️ Token-Log löschen", use_container_width=True):
         clear_token_log()
