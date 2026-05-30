@@ -69,6 +69,9 @@ def load_settings() -> dict:
         "screener_capital": 10000.0,
         "screener_risk_pct": 1.0,
         "screener_min_crv": 2.0,
+        "screener_auto_enabled": False,
+        "screener_auto_time": "22:00",
+        "screener_auto_index": "Nasdaq 100",
     }
     saved = _load_json_file(SETTINGS_FILE, {})
     return {**defaults, **saved}
@@ -426,6 +429,67 @@ def _discovery_worker(sectors, n_picks, excluded_tickers, api_key, model, search
         save_discovery_job({"status": "error", "error": str(e)})
 
 
+# ─── Auto-scheduler ───────────────────────────────────────────────────────────
+
+_scheduler_started = False
+_scheduler_lock    = threading.Lock()
+
+
+def _scheduler_loop():
+    from datetime import date
+    last_run_date = None
+
+    while True:
+        time.sleep(60)
+        try:
+            cfg = load_settings()
+            if not cfg.get("screener_auto_enabled"):
+                continue
+
+            now = datetime.now()
+            if now.weekday() >= 5:  # skip weekends
+                continue
+
+            auto_time = cfg.get("screener_auto_time", "22:00")
+            h, m = map(int, auto_time.split(":"))
+            if now.hour != h or now.minute != m:
+                continue
+
+            today = date.today()
+            if last_run_date == today:
+                continue
+
+            if load_screener_job().get("status") == "running":
+                continue
+
+            last_run_date = today
+            capital  = float(cfg.get("screener_capital", 10000.0))
+            risk_pct = float(cfg.get("screener_risk_pct", 1.0)) / 100.0
+            min_crv  = float(cfg.get("screener_min_crv", 2.0))
+            index    = cfg.get("screener_auto_index", "Nasdaq 100")
+
+            save_screener_job({
+                "status":     "running",
+                "started_at": now.strftime("%H:%M:%S"),
+                "auto":       True,
+            })
+            threading.Thread(
+                target=_screener_worker,
+                args=(index, capital, risk_pct, min_crv),
+                daemon=True,
+            ).start()
+        except Exception:
+            pass
+
+
+def _ensure_scheduler_running():
+    global _scheduler_started
+    with _scheduler_lock:
+        if not _scheduler_started:
+            _scheduler_started = True
+            threading.Thread(target=_scheduler_loop, daemon=True).start()
+
+
 # ─── Search & list widgets ────────────────────────────────────────────────────
 
 def search_yahoo_finance(query: str):
@@ -613,6 +677,7 @@ for key, _label, default in PREDEFINED_SECTORS:
 
 settings      = load_settings()
 portfolio_data = load_portfolio()
+_ensure_scheduler_running()
 
 # ─── Tabs ─────────────────────────────────────────────────────────────────────
 
@@ -1337,14 +1402,52 @@ with tab_settings:
             step=0.1, key="set_sc_crv",
         )
 
+    st.markdown("### ⏰ Automatischer Screener-Run")
+    st.caption("Läuft täglich an Werktagen zur konfigurierten Uhrzeit (MEZ). Nur aktiv solange der Server läuft.")
+    auto_col1, auto_col2, auto_col3 = st.columns(3)
+    with auto_col1:
+        s_auto_enabled = st.toggle(
+            "Auto-Run aktivieren",
+            value=bool(settings.get("screener_auto_enabled", False)),
+            key="set_auto_enabled",
+        )
+    with auto_col2:
+        s_auto_time = st.text_input(
+            "Uhrzeit (HH:MM):",
+            value=settings.get("screener_auto_time", "22:00"),
+            key="set_auto_time",
+            disabled=not s_auto_enabled,
+        )
+    with auto_col3:
+        s_auto_index = st.selectbox(
+            "Index:",
+            ["Nasdaq 100", "S&P 500", "Stoxx Europe 600"],
+            index=["Nasdaq 100", "S&P 500", "Stoxx Europe 600"].index(
+                settings.get("screener_auto_index", "Nasdaq 100")
+            ),
+            key="set_auto_index",
+            disabled=not s_auto_enabled,
+        )
+
+    if s_auto_enabled:
+        try:
+            h, m = map(int, s_auto_time.split(":"))
+            assert 0 <= h <= 23 and 0 <= m <= 59
+            st.info(f"Auto-Run läuft täglich Mo–Fr um **{s_auto_time} Uhr** — Index: **{s_auto_index}**")
+        except Exception:
+            st.error("Ungültiges Zeitformat — bitte HH:MM eingeben, z.B. 22:00")
+
     # ── Speichern ─────────────────────────────────────────────────────────────
     st.markdown("---")
     if st.button("💾 Einstellungen speichern", type="primary", use_container_width=True):
-        settings["search_engine"]    = selected_engine
-        settings["model"]            = selected_model
-        settings["screener_capital"] = s_capital
-        settings["screener_risk_pct"]= s_risk
-        settings["screener_min_crv"] = s_crv
+        settings["search_engine"]         = selected_engine
+        settings["model"]                 = selected_model
+        settings["screener_capital"]      = s_capital
+        settings["screener_risk_pct"]     = s_risk
+        settings["screener_min_crv"]      = s_crv
+        settings["screener_auto_enabled"] = s_auto_enabled
+        settings["screener_auto_time"]    = s_auto_time
+        settings["screener_auto_index"]   = s_auto_index
         save_settings(settings)
         st.success("Einstellungen gespeichert.")
         st.rerun()
