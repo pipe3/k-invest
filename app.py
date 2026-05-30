@@ -71,7 +71,7 @@ def load_settings() -> dict:
         "screener_min_crv": 2.0,
         "screener_auto_enabled": False,
         "screener_auto_time": "22:00",
-        "screener_auto_index": "Nasdaq 100",
+        "screener_auto_indices": ["Nasdaq 100"],
     }
     saved = _load_json_file(SETTINGS_FILE, {})
     return {**defaults, **saved}
@@ -466,18 +466,20 @@ def _scheduler_loop():
             capital  = float(cfg.get("screener_capital", 10000.0))
             risk_pct = float(cfg.get("screener_risk_pct", 1.0)) / 100.0
             min_crv  = float(cfg.get("screener_min_crv", 2.0))
-            index    = cfg.get("screener_auto_index", "Nasdaq 100")
+            # Support legacy single-index key
+            indices = cfg.get("screener_auto_indices") or [cfg.get("screener_auto_index", "Nasdaq 100")]
 
             save_screener_job({
                 "status":     "running",
                 "started_at": now.strftime("%H:%M:%S"),
                 "auto":       True,
             })
-            threading.Thread(
-                target=_screener_worker,
-                args=(index, capital, risk_pct, min_crv),
-                daemon=True,
-            ).start()
+            for index in indices:
+                threading.Thread(
+                    target=_screener_worker,
+                    args=(index, capital, risk_pct, min_crv),
+                    daemon=True,
+                ).start()
         except Exception:
             pass
 
@@ -1419,13 +1421,14 @@ with tab_settings:
             disabled=not s_auto_enabled,
         )
     with auto_col3:
-        s_auto_index = st.selectbox(
-            "Index:",
-            ["Nasdaq 100", "S&P 500", "Stoxx Europe 600"],
-            index=["Nasdaq 100", "S&P 500", "Stoxx Europe 600"].index(
-                settings.get("screener_auto_index", "Nasdaq 100")
-            ),
-            key="set_auto_index",
+        _all_indices = ["Nasdaq 100", "S&P 500", "Stoxx Europe 600"]
+        _saved = settings.get("screener_auto_indices") or [settings.get("screener_auto_index", "Nasdaq 100")]
+        _default = [i for i in _saved if i in _all_indices] or ["Nasdaq 100"]
+        s_auto_indices = st.multiselect(
+            "Indizes:",
+            _all_indices,
+            default=_default,
+            key="set_auto_indices",
             disabled=not s_auto_enabled,
         )
 
@@ -1433,7 +1436,10 @@ with tab_settings:
         try:
             h, m = map(int, s_auto_time.split(":"))
             assert 0 <= h <= 23 and 0 <= m <= 59
-            st.info(f"Auto-Run läuft täglich Mo–Fr um **{s_auto_time} Uhr** — Index: **{s_auto_index}**")
+            if not s_auto_indices:
+                st.warning("Bitte mindestens einen Index auswählen.")
+            else:
+                st.info(f"Auto-Run läuft täglich Mo–Fr um **{s_auto_time} Uhr** — Indizes: **{', '.join(s_auto_indices)}**")
         except Exception:
             st.error("Ungültiges Zeitformat — bitte HH:MM eingeben, z.B. 22:00")
 
@@ -1445,9 +1451,9 @@ with tab_settings:
         settings["screener_capital"]      = s_capital
         settings["screener_risk_pct"]     = s_risk
         settings["screener_min_crv"]      = s_crv
-        settings["screener_auto_enabled"] = s_auto_enabled
-        settings["screener_auto_time"]    = s_auto_time
-        settings["screener_auto_index"]   = s_auto_index
+        settings["screener_auto_enabled"]  = s_auto_enabled
+        settings["screener_auto_time"]     = s_auto_time
+        settings["screener_auto_indices"]  = s_auto_indices
         save_settings(settings)
         st.success("Einstellungen gespeichert.")
         st.rerun()
