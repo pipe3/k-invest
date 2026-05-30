@@ -3,6 +3,7 @@ anthropic
 yfinance
 ddgs
 pandas
+lxml
 multitasking<=0.0.9
 requests
 google-api-python-client

@@ -12,6 +12,7 @@ from agent import analyze_portfolio
 from discovery_agent import discover_stocks
 from podcast_agent import analyze_latest_podcast
 from podcast_tools import get_recent_videos
+from screener import run_screener
 
 # ─── File paths ───────────────────────────────────────────────────────────────
 
@@ -25,6 +26,8 @@ SETTINGS_FILE          = os.environ.get("SETTINGS_FILE",          "settings.json
 DISCOVERY_HISTORY_FILE = os.environ.get("DISCOVERY_HISTORY_FILE", "discovery_history.json")
 DISCOVERY_JOB_FILE     = os.environ.get("DISCOVERY_JOB_FILE",     "discovery_job.json")
 TOKEN_LOG_FILE         = os.environ.get("TOKEN_LOG_FILE",         "token_log.json")
+SCREENER_JOB_FILE      = os.environ.get("SCREENER_JOB_FILE",      "screener_job.json")
+SCREENER_HISTORY_FILE  = os.environ.get("SCREENER_HISTORY_FILE",  "screener_history.json")
 
 MAX_HISTORY = 10
 
@@ -59,7 +62,14 @@ def _save_json_file(path: str, data):
 # ─── Settings ─────────────────────────────────────────────────────────────────
 
 def load_settings() -> dict:
-    defaults = {"model": "claude-sonnet-4-6", "search_engine": "duckduckgo", "cached_models": ["claude-sonnet-4-6"]}
+    defaults = {
+        "model": "claude-sonnet-4-6",
+        "search_engine": "duckduckgo",
+        "cached_models": ["claude-sonnet-4-6"],
+        "screener_capital": 10000.0,
+        "screener_risk_pct": 1.0,
+        "screener_min_crv": 2.0,
+    }
     saved = _load_json_file(SETTINGS_FILE, {})
     return {**defaults, **saved}
 
@@ -177,6 +187,43 @@ def load_discovery_job() -> dict:
 
 def save_discovery_job(data: dict):
     _save_json_file(DISCOVERY_JOB_FILE, data)
+
+
+# ─── Screener helpers ─────────────────────────────────────────────────────────
+
+def load_screener_history() -> list:
+    return _load_json_file(SCREENER_HISTORY_FILE, [])
+
+
+def save_screener_history(entry: dict):
+    history = load_screener_history()
+    history.insert(0, entry)
+    history = history[:MAX_HISTORY]
+    _save_json_file(SCREENER_HISTORY_FILE, history)
+
+
+def clear_screener_history():
+    _save_json_file(SCREENER_HISTORY_FILE, [])
+
+
+def load_screener_job() -> dict:
+    return _load_json_file(SCREENER_JOB_FILE, {"status": "idle"})
+
+
+def save_screener_job(data: dict):
+    _save_json_file(SCREENER_JOB_FILE, data)
+
+
+def update_screener_signal_outcome(run_index: int, ticker: str, outcome: str):
+    history = load_screener_history()
+    if run_index >= len(history):
+        return
+    for signal in history[run_index].get("signals", []):
+        if signal["ticker"] == ticker:
+            signal["outcome"]   = outcome
+            signal["closed_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            break
+    _save_json_file(SCREENER_HISTORY_FILE, history)
 
 
 # ─── Token log ────────────────────────────────────────────────────────────────
@@ -333,6 +380,27 @@ def _podcast_analysis_worker(youtube_api_key, api_key, podcast_wl, model, search
             save_podcast_job({"status": "done"})
     except Exception as e:
         save_podcast_job({"status": "error", "error": str(e)})
+
+
+def _screener_worker(index: str, capital: float, risk_pct: float, min_crv: float):
+    try:
+        result = run_screener(index, capital, risk_pct, min_crv)
+        if "error" in result:
+            save_screener_job({"status": "error", "error": result["error"]})
+        else:
+            save_screener_history({
+                "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                "index":     result["index"],
+                "capital":   result["capital"],
+                "risk_pct":  result["risk_pct"],
+                "min_crv":   result["min_crv"],
+                "eurusd":    result["eurusd"],
+                "scanned":   result["scanned"],
+                "signals":   result["signals"],
+            })
+            save_screener_job({"status": "done", "n_signals": len(result["signals"])})
+    except Exception as e:
+        save_screener_job({"status": "error", "error": str(e)})
 
 
 def _discovery_worker(sectors, n_picks, excluded_tickers, api_key, model, search_config):
@@ -548,8 +616,8 @@ portfolio_data = load_portfolio()
 
 # ─── Tabs ─────────────────────────────────────────────────────────────────────
 
-tab_analyse, tab_depot, tab_watchlist, tab_podcast, tab_discovery, tab_settings = st.tabs([
-    "🚀 Analyse", "💼 Depot", "🔭 Watchlist", "🎧 Podcast", "🔍 Discovery", "⚙️ Einstellungen"
+tab_analyse, tab_depot, tab_watchlist, tab_podcast, tab_discovery, tab_screener, tab_settings = st.tabs([
+    "🚀 Analyse", "💼 Depot", "🔭 Watchlist", "🎧 Podcast", "🔍 Discovery", "📡 Screener", "⚙️ Einstellungen"
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -938,6 +1006,226 @@ with tab_discovery:
                                     st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TAB: SCREENER
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_screener:
+    st.subheader("📡 EMA-20 Pullback Screener")
+    st.markdown(
+        "Scannt den gewählten Index nach Aktien, die in einem Aufwärtstrend an den EMA-20 "
+        "zurückgekehrt sind und ein günstiges Risiko-Rendite-Verhältnis aufweisen. "
+        "Keine KI — reine Technische Analyse. Kostenlos."
+    )
+
+    sc_job        = load_screener_job()
+    sc_job_status = sc_job.get("status", "idle")
+
+    if sc_job_status == "running":
+        st.info("⏳ Screener läuft im Hintergrund — je nach Index dauert das 1–8 Minuten.")
+        st.caption(f"Gestartet um {sc_job.get('started_at', '...')}")
+        time.sleep(5)
+        st.rerun()
+
+    elif sc_job_status == "error":
+        st.error(f"Fehler: {sc_job.get('error', 'Unbekannter Fehler')}")
+        if st.button("❌ Fehler quittieren", use_container_width=True, key="sc_err_btn"):
+            save_screener_job({"status": "idle"})
+            st.rerun()
+
+    else:
+        if sc_job_status == "done":
+            n_sig = sc_job.get("n_signals", 0)
+            st.success(f"Screening abgeschlossen — {n_sig} Signal(e) gefunden. Ergebnis in der Historie.")
+            save_screener_job({"status": "idle"})
+
+        # ── Parameter ─────────────────────────────────────────────────────────
+        sc_col1, sc_col2 = st.columns(2)
+        with sc_col1:
+            sc_index = st.radio(
+                "Index:",
+                ["Nasdaq 100", "S&P 500"],
+                horizontal=True,
+                key="sc_index",
+                help="S&P 500 dauert ca. 5–8 Minuten",
+            )
+        with sc_col2:
+            sc_crv = st.slider(
+                "Min. CRV:",
+                min_value=1.0, max_value=4.0,
+                value=float(settings.get("screener_min_crv", 2.0)),
+                step=0.1, key="sc_crv",
+                help="Signale unter diesem Chancen-Risiko-Verhältnis werden verworfen",
+            )
+
+        cap_col, risk_col = st.columns(2)
+        with cap_col:
+            sc_capital = st.number_input(
+                "Gesamtkapital (€):",
+                min_value=100.0, max_value=10_000_000.0,
+                value=float(settings.get("screener_capital", 10000.0)),
+                step=500.0, key="sc_capital",
+            )
+        with risk_col:
+            sc_risk_pct = st.number_input(
+                "Risiko pro Trade (%):",
+                min_value=0.1, max_value=5.0,
+                value=float(settings.get("screener_risk_pct", 1.0)),
+                step=0.1, key="sc_risk_pct",
+                help="Anteil des Gesamtkapitals, der pro Trade riskiert wird",
+            ) / 100.0
+
+        save_col, run_col = st.columns([2, 3])
+        with save_col:
+            if st.button("💾 Als Standard speichern", use_container_width=True, key="sc_save_defaults"):
+                settings["screener_capital"]  = sc_capital
+                settings["screener_risk_pct"] = sc_risk_pct * 100
+                settings["screener_min_crv"]  = sc_crv
+                save_settings(settings)
+                st.toast("✅ Screener-Defaults gespeichert!")
+        with run_col:
+            if st.button("📡 Screening starten", use_container_width=True, type="primary", key="sc_run_btn"):
+                save_screener_job({"status": "running", "started_at": datetime.now().strftime("%H:%M:%S")})
+                threading.Thread(
+                    target=_screener_worker,
+                    args=(sc_index, sc_capital, sc_risk_pct, sc_crv),
+                    daemon=True,
+                ).start()
+                st.rerun()
+
+    # ── History ───────────────────────────────────────────────────────────────
+    sc_history = load_screener_history()
+    if sc_history:
+        sh_col1, sh_col2 = st.columns([8, 2])
+        with sh_col1:
+            st.subheader("📊 Screener-Historie")
+        with sh_col2:
+            if st.button("🗑️ Alle löschen", key="clear_sc_history"):
+                clear_screener_history()
+                st.rerun()
+
+        for run_idx, entry in enumerate(sc_history):
+            ts       = entry.get("timestamp", "")
+            idx_name = entry.get("index", "")
+            n_sig    = len(entry.get("signals", []))
+            scanned  = entry.get("scanned", 0)
+            eurusd   = entry.get("eurusd", 1.0)
+            try:
+                dt_label = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S").strftime("%d.%m.%Y %H:%M")
+            except Exception:
+                dt_label = ts
+
+            with st.expander(
+                f"📡 {dt_label} — {idx_name} | {n_sig} Signal(e) von {scanned} geprüft",
+                expanded=(run_idx == 0),
+            ):
+                signals = entry.get("signals", [])
+                if not signals:
+                    st.info("Kein Signal gefunden, das alle Kriterien erfüllt.")
+                else:
+                    # Summary table
+                    summary_rows = []
+                    for s in signals:
+                        outcome = s.get("outcome")
+                        if outcome == "win":
+                            badge = "✅ TP"
+                        elif outcome == "loss":
+                            badge = "❌ SL"
+                        else:
+                            badge = "⏳ Offen"
+                        summary_rows.append({
+                            "Ticker":     s["ticker"],
+                            "Einstieg":   f"{s['entry_eur']:.2f} €",
+                            "Stop-Loss":  f"{s['sl_eur']:.2f} €",
+                            "Take Profit":f"{s['tp_eur']:.2f} €",
+                            "CRV":        f"{s['crv']:.1f}",
+                            "Stück":      s["shares"],
+                            "Volumen":    f"{s['volume_eur']:.0f} €",
+                            "Max. Verlust":f"{s['max_loss_eur']:.0f} €",
+                            "Muster":     s.get("pattern", ""),
+                            "Ergebnis":   badge,
+                        })
+                    import pandas as pd
+                    st.dataframe(pd.DataFrame(summary_rows), hide_index=True, width="stretch")
+
+                    # Detail expanders per signal
+                    st.markdown("**Signal-Details & Order-Daten:**")
+                    for s in signals:
+                        outcome = s.get("outcome")
+                        ticker  = s["ticker"]
+                        sig_label = f"{ticker} — EMA: {s['ema20_eur']:.2f} € | CRV: {s['crv']:.1f}"
+
+                        with st.expander(sig_label):
+                            d1, d2 = st.columns(2)
+                            with d1:
+                                st.markdown(f"**Trend-Status:** Über SMA 50 ({s['sma50_eur']:.2f} €) & SMA 200 ({s['sma200_eur']:.2f} €)")
+                                st.markdown(f"**Muster:** {s.get('pattern', '')} an EMA-20 ({s['ema20_eur']:.2f} €)")
+                                st.markdown(f"**EUR/USD:** {eurusd:.4f}")
+                            with d2:
+                                st.markdown(f"**Kapital:** {entry.get('capital', 0):,.0f} € | Risiko: {entry.get('risk_pct', 0)*100:.1f}%")
+
+                            st.markdown("---")
+                            st.markdown("**ORDER-DATEN (manuell im Broker eingeben):**")
+                            o1, o2, o3, o4 = st.columns(4)
+                            o1.metric("Aktion",     "KAUF")
+                            o2.metric("Stückzahl",  f"{s['shares']} Stück")
+                            o3.metric("Einstieg",   f"{s['entry_eur']:.2f} €")
+                            o4.metric("Volumen",    f"{s['volume_eur']:.0f} €")
+
+                            o5, o6, o7, o8 = st.columns(4)
+                            o5.metric("Stop-Loss",   f"{s['sl_eur']:.2f} €")
+                            o6.metric("Take Profit", f"{s['tp_eur']:.2f} €")
+                            o7.metric("Max. Verlust", f"{s['max_loss_eur']:.0f} €")
+                            o8.metric("CRV",         f"{s['crv']:.1f}")
+
+                            # Outcome tracking
+                            st.markdown("---")
+                            if outcome is None:
+                                st.caption("Trade-Ergebnis erfassen:")
+                                oc1, oc2, oc3 = st.columns([2, 2, 4])
+                                with oc1:
+                                    if st.button("✅ Take Profit", key=f"tp_{run_idx}_{ticker}"):
+                                        update_screener_signal_outcome(run_idx, ticker, "win")
+                                        st.rerun()
+                                with oc2:
+                                    if st.button("❌ Stop-Loss", key=f"sl_{run_idx}_{ticker}"):
+                                        update_screener_signal_outcome(run_idx, ticker, "loss")
+                                        st.rerun()
+                            else:
+                                closed = s.get("closed_at", "")
+                                try:
+                                    closed = datetime.strptime(closed, "%Y-%m-%dT%H:%M:%S").strftime("%d.%m.%Y")
+                                except Exception:
+                                    pass
+                                if outcome == "win":
+                                    st.success(f"✅ Take Profit erreicht — {closed}")
+                                else:
+                                    st.error(f"❌ Stop-Loss ausgelöst — {closed}")
+
+                            # Add to portfolio buttons
+                            st.markdown("---")
+                            in_wl  = any(e["ticker"] == ticker for e in portfolio_data["watchlist"])
+                            in_dep = any(e["ticker"] == ticker for e in portfolio_data["depot"])
+                            pb1, pb2, _ = st.columns([2, 2, 4])
+                            with pb1:
+                                if in_wl:
+                                    st.caption("✓ Watchlist")
+                                else:
+                                    if st.button("+ Watchlist", key=f"sc_w_{run_idx}_{ticker}"):
+                                        portfolio_data["watchlist"].append({"ticker": ticker, "name": ticker})
+                                        save_portfolio(portfolio_data)
+                                        st.toast(f"✅ {ticker} zur Watchlist hinzugefügt!")
+                                        st.rerun()
+                            with pb2:
+                                if in_dep:
+                                    st.caption("✓ Depot")
+                                else:
+                                    if st.button("+ Depot", key=f"sc_d_{run_idx}_{ticker}"):
+                                        portfolio_data["depot"].append({"ticker": ticker, "name": ticker})
+                                        save_portfolio(portfolio_data)
+                                        st.toast(f"✅ {ticker} ins Depot hinzugefügt!")
+                                        st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # TAB: EINSTELLUNGEN
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_settings:
@@ -1019,11 +1307,39 @@ with tab_settings:
 
     st.caption(f"Aktuell aktiv: **{current_model}**")
 
+    # ── Screener ──────────────────────────────────────────────────────────────
+    st.markdown("### 📡 Screener Defaults")
+    s_cap_col, s_risk_col, s_crv_col = st.columns(3)
+    with s_cap_col:
+        s_capital = st.number_input(
+            "Gesamtkapital (€):",
+            min_value=100.0, max_value=10_000_000.0,
+            value=float(settings.get("screener_capital", 10000.0)),
+            step=500.0, key="set_sc_capital",
+        )
+    with s_risk_col:
+        s_risk = st.number_input(
+            "Risiko pro Trade (%):",
+            min_value=0.1, max_value=5.0,
+            value=float(settings.get("screener_risk_pct", 1.0)),
+            step=0.1, key="set_sc_risk",
+        )
+    with s_crv_col:
+        s_crv = st.number_input(
+            "Min. CRV:",
+            min_value=1.0, max_value=4.0,
+            value=float(settings.get("screener_min_crv", 2.0)),
+            step=0.1, key="set_sc_crv",
+        )
+
     # ── Speichern ─────────────────────────────────────────────────────────────
     st.markdown("---")
     if st.button("💾 Einstellungen speichern", type="primary", use_container_width=True):
-        settings["search_engine"] = selected_engine
-        settings["model"]         = selected_model
+        settings["search_engine"]    = selected_engine
+        settings["model"]            = selected_model
+        settings["screener_capital"] = s_capital
+        settings["screener_risk_pct"]= s_risk
+        settings["screener_min_crv"] = s_crv
         save_settings(settings)
         st.success("Einstellungen gespeichert.")
         st.rerun()
