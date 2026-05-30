@@ -53,7 +53,7 @@ def _save_cache(data: dict):
         json.dump(data, f, indent=2)
 
 
-def _fetch_stoxx600_tickers() -> list:
+def _fetch_stoxx600_tickers() -> tuple:
     resp = requests.get(
         "https://en.wikipedia.org/wiki/STOXX_Europe_600",
         headers=_HEADERS, timeout=15,
@@ -65,13 +65,17 @@ def _fetch_stoxx600_tickers() -> list:
         if "Ticker" in table.columns and "Country" in table.columns:
             eur_rows = table[table["Country"].isin(_STOXX_COUNTRY_SUFFIX)]
             tickers = []
+            names = {}
             for _, row in eur_rows.iterrows():
                 raw = str(row["Ticker"]).strip()
                 suffix = _STOXX_COUNTRY_SUFFIX[row["Country"]]
-                tickers.append(raw + suffix)
-            return tickers
+                ticker = raw + suffix
+                tickers.append(ticker)
+                if "Company" in table.columns:
+                    names[ticker] = str(row["Company"])
+            return tickers, names
 
-    return []
+    return [], {}
 
 
 def get_index_tickers(index: str) -> list:
@@ -87,8 +91,9 @@ def get_index_tickers(index: str) -> list:
             pass
 
     try:
+        names = {}
         if index == "Stoxx Europe 600":
-            tickers = _fetch_stoxx600_tickers()
+            tickers, names = _fetch_stoxx600_tickers()
         else:
             config = _WIKI_CONFIG.get(index)
             if not config:
@@ -110,18 +115,39 @@ def get_index_tickers(index: str) -> list:
                         ]
                         if len(candidates) > 50:
                             tickers = candidates
+                            # Also extract company names from adjacent column
+                            name_col = None
+                            for nc in ["Company", "Security", "Name"]:
+                                if nc in table.columns:
+                                    name_col = nc
+                                    break
+                            if name_col:
+                                ticker_col = col
+                                for _, row in table.iterrows():
+                                    t_val = str(row[ticker_col]).strip().replace(".", "-")
+                                    if t_val in tickers:
+                                        names[t_val] = str(row[name_col])
                             break
                 if tickers:
                     break
 
         if tickers:
-            cache[index] = {"tickers": tickers, "cached_at": datetime.now().isoformat()}
+            cache[index] = {
+                "tickers":   tickers,
+                "names":     names,
+                "cached_at": datetime.now().isoformat(),
+            }
             _save_cache(cache)
             return tickers
     except Exception:
         pass
 
     return entry.get("tickers", [])
+
+
+def get_ticker_names(index: str) -> dict:
+    cache = _load_cache()
+    return cache.get(index, {}).get("names", {})
 
 
 def get_eurusd_rate() -> float:
@@ -177,7 +203,7 @@ def _find_take_profit(df: pd.DataFrame) -> float:
     return float(df.iloc[-25:-5]["High"].max())
 
 
-def _screen_ticker(ticker: str, df: pd.DataFrame, capital: float,
+def _screen_ticker(ticker: str, name: str, df: pd.DataFrame, capital: float,
                    risk_pct: float, min_crv: float, price_to_eur: float):
     if len(df) < 200:
         return None
@@ -239,6 +265,7 @@ def _screen_ticker(ticker: str, df: pd.DataFrame, capital: float,
 
     return {
         "ticker":       ticker,
+        "name":         name,
         "entry_eur":    round(entry_eur, 2),
         "sl_eur":       round(sl_eur, 2),
         "tp_eur":       round(tp_eur, 2),
@@ -269,6 +296,7 @@ def run_screener(index: str, capital: float, risk_pct: float, min_crv: float) ->
 
     eurusd = get_eurusd_rate()
     price_to_eur = 1.0 if index in _EUR_NATIVE_INDICES else (1.0 / eurusd)
+    names = get_ticker_names(index)
 
     signals = []
     errors  = 0
@@ -278,7 +306,8 @@ def run_screener(index: str, capital: float, risk_pct: float, min_crv: float) ->
             df = yf.Ticker(ticker).history(period="1y", interval="1d")
             if df.empty:
                 continue
-            signal = _screen_ticker(ticker, df, capital, risk_pct, min_crv, price_to_eur)
+            name = names.get(ticker, ticker)
+            signal = _screen_ticker(ticker, name, df, capital, risk_pct, min_crv, price_to_eur)
             if signal:
                 signals.append(signal)
         except Exception:

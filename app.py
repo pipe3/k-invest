@@ -1136,7 +1136,8 @@ with tab_screener:
                         else:
                             badge = "⏳ Offen"
                         summary_rows.append({
-                            "Ticker":     s["ticker"],
+                            "Ticker":      s["ticker"],
+                            "Unternehmen": s.get("name", s["ticker"]),
                             "Einstieg":   f"{s['entry_eur']:.2f} €",
                             "Stop-Loss":  f"{s['sl_eur']:.2f} €",
                             "Take Profit":f"{s['tp_eur']:.2f} €",
@@ -1155,7 +1156,7 @@ with tab_screener:
                     for s in signals:
                         outcome = s.get("outcome")
                         ticker  = s["ticker"]
-                        sig_label = f"{ticker} — EMA: {s['ema20_eur']:.2f} € | CRV: {s['crv']:.1f}"
+                        sig_label = f"{ticker} — {s.get('name', ticker)} | EMA: {s['ema20_eur']:.2f} € | CRV: {s['crv']:.1f}"
 
                         with st.expander(sig_label):
                             d1, d2 = st.columns(2)
