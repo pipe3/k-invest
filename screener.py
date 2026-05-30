@@ -1,9 +1,13 @@
 import json
 import os
 from datetime import datetime, timedelta
+from io import StringIO
 
 import pandas as pd
+import requests
 import yfinance as yf
+
+_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; k-invest-screener/1.0)"}
 
 INDEX_CACHE_FILE = os.environ.get("INDEX_CACHE_FILE", "index_cache.json")
 
@@ -51,7 +55,9 @@ def get_index_tickers(index: str) -> list:
         return entry.get("tickers", [])
 
     try:
-        tables = pd.read_html(config["url"])
+        resp = requests.get(config["url"], headers=_HEADERS, timeout=15)
+        resp.raise_for_status()
+        tables = pd.read_html(StringIO(resp.text))
         hints = config["col_hints"]
         tickers = []
         for table in tables:
