@@ -22,6 +22,21 @@ _WIKI_CONFIG = {
     },
 }
 
+# Exchange suffixes for yfinance per country (Eurozone only — prices natively in EUR)
+_STOXX_COUNTRY_SUFFIX = {
+    "Germany":     ".DE",
+    "France":      ".PA",
+    "Spain":       ".MC",
+    "Italy":       ".MI",
+    "Netherlands": ".AS",
+    "Belgium":     ".BR",
+    "Finland":     ".HE",
+    "Austria":     ".VI",
+    "Portugal":    ".LS",
+    "Ireland":     ".IR",
+    "Luxembourg":  ".LU",
+}
+
 
 def _load_cache() -> dict:
     if os.path.exists(INDEX_CACHE_FILE):
@@ -38,6 +53,27 @@ def _save_cache(data: dict):
         json.dump(data, f, indent=2)
 
 
+def _fetch_stoxx600_tickers() -> list:
+    resp = requests.get(
+        "https://en.wikipedia.org/wiki/STOXX_Europe_600",
+        headers=_HEADERS, timeout=15,
+    )
+    resp.raise_for_status()
+    tables = pd.read_html(StringIO(resp.text))
+
+    for table in tables:
+        if "Ticker" in table.columns and "Country" in table.columns:
+            eur_rows = table[table["Country"].isin(_STOXX_COUNTRY_SUFFIX)]
+            tickers = []
+            for _, row in eur_rows.iterrows():
+                raw = str(row["Ticker"]).strip()
+                suffix = _STOXX_COUNTRY_SUFFIX[row["Country"]]
+                tickers.append(raw + suffix)
+            return tickers
+
+    return []
+
+
 def get_index_tickers(index: str) -> list:
     cache = _load_cache()
     entry = cache.get(index, {})
@@ -50,31 +86,33 @@ def get_index_tickers(index: str) -> list:
         except Exception:
             pass
 
-    config = _WIKI_CONFIG.get(index)
-    if not config:
-        return entry.get("tickers", [])
-
     try:
-        resp = requests.get(config["url"], headers=_HEADERS, timeout=15)
-        resp.raise_for_status()
-        tables = pd.read_html(StringIO(resp.text))
-        hints = config["col_hints"]
-        tickers = []
-        for table in tables:
-            for col in table.columns:
-                col_lower = str(col).lower()
-                if any(h in col_lower for h in hints):
-                    raw = table[col].dropna().tolist()
-                    candidates = [
-                        str(t).strip().replace(".", "-")
-                        for t in raw
-                        if isinstance(t, str) and 1 <= len(str(t).strip()) <= 6
-                    ]
-                    if len(candidates) > 50:
-                        tickers = candidates
-                        break
-            if tickers:
-                break
+        if index == "Stoxx Europe 600":
+            tickers = _fetch_stoxx600_tickers()
+        else:
+            config = _WIKI_CONFIG.get(index)
+            if not config:
+                return entry.get("tickers", [])
+            resp = requests.get(config["url"], headers=_HEADERS, timeout=15)
+            resp.raise_for_status()
+            tables = pd.read_html(StringIO(resp.text))
+            hints = config["col_hints"]
+            tickers = []
+            for table in tables:
+                for col in table.columns:
+                    col_lower = str(col).lower()
+                    if any(h in col_lower for h in hints):
+                        raw = table[col].dropna().tolist()
+                        candidates = [
+                            str(t).strip().replace(".", "-")
+                            for t in raw
+                            if isinstance(t, str) and 1 <= len(str(t).strip()) <= 6
+                        ]
+                        if len(candidates) > 50:
+                            tickers = candidates
+                            break
+                if tickers:
+                    break
 
         if tickers:
             cache[index] = {"tickers": tickers, "cached_at": datetime.now().isoformat()}
@@ -140,14 +178,14 @@ def _find_take_profit(df: pd.DataFrame) -> float:
 
 
 def _screen_ticker(ticker: str, df: pd.DataFrame, capital: float,
-                   risk_pct: float, min_crv: float, eurusd: float):
+                   risk_pct: float, min_crv: float, price_to_eur: float):
     if len(df) < 200:
         return None
 
     df = df.copy()
-    df["SMA50"]   = df["Close"].rolling(50).mean()
-    df["SMA200"]  = df["Close"].rolling(200).mean()
-    df["EMA20"]   = df["Close"].ewm(span=20, adjust=False).mean()
+    df["SMA50"]    = df["Close"].rolling(50).mean()
+    df["SMA200"]   = df["Close"].rolling(200).mean()
+    df["EMA20"]    = df["Close"].ewm(span=20, adjust=False).mean()
     df["AvgVol20"] = df["Volume"].rolling(20).mean()
 
     last = df.iloc[-1]
@@ -183,15 +221,15 @@ def _screen_ticker(ticker: str, df: pd.DataFrame, capital: float,
     if crv < min_crv:
         return None
 
-    entry_eur       = entry / eurusd
-    sl_eur          = sl / eurusd
-    tp_eur          = tp / eurusd
+    entry_eur       = entry * price_to_eur
+    sl_eur          = sl * price_to_eur
+    tp_eur          = tp * price_to_eur
     r_per_share_eur = entry_eur - sl_eur
     if r_per_share_eur <= 0:
         return None
 
-    r_eur      = capital * risk_pct
-    shares     = int(r_eur / r_per_share_eur)
+    r_eur        = capital * risk_pct
+    shares       = int(r_eur / r_per_share_eur)
     if shares <= 0:
         return None
     volume_eur   = shares * entry_eur
@@ -209,13 +247,16 @@ def _screen_ticker(ticker: str, df: pd.DataFrame, capital: float,
         "volume_eur":   round(volume_eur, 2),
         "max_loss_eur": round(max_loss_eur, 2),
         "pattern":      "Hammer" if hammer else "Grüne Kerze",
-        "eurusd":       round(eurusd, 4),
-        "sma50_eur":    round(float(last["SMA50"]) / eurusd, 2),
-        "sma200_eur":   round(float(last["SMA200"]) / eurusd, 2),
-        "ema20_eur":    round(float(last["EMA20"]) / eurusd, 2),
+        "sma50_eur":    round(float(last["SMA50"]) * price_to_eur, 2),
+        "sma200_eur":   round(float(last["SMA200"]) * price_to_eur, 2),
+        "ema20_eur":    round(float(last["EMA20"]) * price_to_eur, 2),
         "outcome":      None,
         "closed_at":    None,
     }
+
+
+# Indices where prices are already in EUR — no conversion needed
+_EUR_NATIVE_INDICES = {"Stoxx Europe 600"}
 
 
 def run_screener(index: str, capital: float, risk_pct: float, min_crv: float) -> dict:
@@ -226,7 +267,9 @@ def run_screener(index: str, capital: float, risk_pct: float, min_crv: float) ->
             "signals": [], "scanned": 0,
         }
 
-    eurusd  = get_eurusd_rate()
+    eurusd = get_eurusd_rate()
+    price_to_eur = 1.0 if index in _EUR_NATIVE_INDICES else (1.0 / eurusd)
+
     signals = []
     errors  = 0
 
@@ -235,7 +278,7 @@ def run_screener(index: str, capital: float, risk_pct: float, min_crv: float) ->
             df = yf.Ticker(ticker).history(period="1y", interval="1d")
             if df.empty:
                 continue
-            signal = _screen_ticker(ticker, df, capital, risk_pct, min_crv, eurusd)
+            signal = _screen_ticker(ticker, df, capital, risk_pct, min_crv, price_to_eur)
             if signal:
                 signals.append(signal)
         except Exception:

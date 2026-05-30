@@ -1042,10 +1042,10 @@ with tab_screener:
         with sc_col1:
             sc_index = st.radio(
                 "Index:",
-                ["Nasdaq 100", "S&P 500"],
+                ["Nasdaq 100", "S&P 500", "Stoxx Europe 600"],
                 horizontal=True,
                 key="sc_index",
-                help="S&P 500 dauert ca. 5–8 Minuten",
+                help="S&P 500 ~5–8 Min | Stoxx Europe 600 ~5–8 Min (nur Eurozone, ca. 230 Titel)",
             )
         with sc_col2:
             sc_crv = st.slider(
@@ -1113,11 +1113,13 @@ with tab_screener:
             except Exception:
                 dt_label = ts
 
+            eur_native = idx_name == "Stoxx Europe 600"
+            fx_label = "" if eur_native else f" | EUR/USD: {eurusd:.4f}"
             with st.expander(
-                f"📡 {dt_label} — {idx_name} | {n_sig} Signal(e) von {scanned} geprüft | EUR/USD: {eurusd:.4f}",
+                f"📡 {dt_label} — {idx_name} | {n_sig} Signal(e) von {scanned} geprüft{fx_label}",
                 expanded=(run_idx == 0),
             ):
-                if eurusd == 1.0:
+                if not eur_native and eurusd == 1.0:
                     st.error("⚠️ EUR/USD-Kurs konnte nicht abgerufen werden — alle EUR-Werte basieren auf dem Fallback-Kurs 1.0 und sind **nicht verwertbar**. Bitte Screening erneut ausführen.")
                 signals = entry.get("signals", [])
                 if not signals:
