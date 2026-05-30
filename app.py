@@ -1114,9 +1114,11 @@ with tab_screener:
                 dt_label = ts
 
             with st.expander(
-                f"📡 {dt_label} — {idx_name} | {n_sig} Signal(e) von {scanned} geprüft",
+                f"📡 {dt_label} — {idx_name} | {n_sig} Signal(e) von {scanned} geprüft | EUR/USD: {eurusd:.4f}",
                 expanded=(run_idx == 0),
             ):
+                if eurusd == 1.0:
+                    st.error("⚠️ EUR/USD-Kurs konnte nicht abgerufen werden — alle EUR-Werte basieren auf dem Fallback-Kurs 1.0 und sind **nicht verwertbar**. Bitte Screening erneut ausführen.")
                 signals = entry.get("signals", [])
                 if not signals:
                     st.info("Kein Signal gefunden, das alle Kriterien erfüllt.")
