@@ -82,7 +82,7 @@ def get_index_tickers(index: str) -> list:
     cache = _load_cache()
     entry = cache.get(index, {})
     cached_at = entry.get("cached_at")
-    if cached_at and entry.get("tickers"):
+    if cached_at and entry.get("tickers") and "names" in entry:
         try:
             age = datetime.now() - datetime.fromisoformat(cached_at)
             if age < timedelta(hours=24):
