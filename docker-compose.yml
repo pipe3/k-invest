@@ -23,5 +23,6 @@ services:
       - TOKEN_LOG_FILE=/data/token_log.json
       - SCREENER_JOB_FILE=/data/screener_job.json
       - SCREENER_HISTORY_FILE=/data/screener_history.json
+      - SCREENER_LLM_JOB_FILE=/data/screener_llm_job.json
       - INDEX_CACHE_FILE=/data/index_cache.json
     restart: unless-stopped

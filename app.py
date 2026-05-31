@@ -13,6 +13,7 @@ from discovery_agent import discover_stocks
 from podcast_agent import analyze_latest_podcast
 from podcast_tools import get_recent_videos
 from screener import run_screener
+from screener_agent import analyze_screener_signals
 
 # ─── File paths ───────────────────────────────────────────────────────────────
 
@@ -28,6 +29,7 @@ DISCOVERY_JOB_FILE     = os.environ.get("DISCOVERY_JOB_FILE",     "discovery_job
 TOKEN_LOG_FILE         = os.environ.get("TOKEN_LOG_FILE",         "token_log.json")
 SCREENER_JOB_FILE      = os.environ.get("SCREENER_JOB_FILE",      "screener_job.json")
 SCREENER_HISTORY_FILE  = os.environ.get("SCREENER_HISTORY_FILE",  "screener_history.json")
+SCREENER_LLM_JOB_FILE = os.environ.get("SCREENER_LLM_JOB_FILE",  "screener_llm_job.json")
 
 MAX_HISTORY = 10
 
@@ -217,6 +219,14 @@ def save_screener_job(data: dict):
     _save_json_file(SCREENER_JOB_FILE, data)
 
 
+def load_screener_llm_job() -> dict:
+    return _load_json_file(SCREENER_LLM_JOB_FILE, {"status": "idle"})
+
+
+def save_screener_llm_job(data: dict):
+    _save_json_file(SCREENER_LLM_JOB_FILE, data)
+
+
 def update_screener_signal_outcome(run_index: int, ticker: str, outcome: str):
     history = load_screener_history()
     if run_index >= len(history):
@@ -383,6 +393,33 @@ def _podcast_analysis_worker(youtube_api_key, api_key, podcast_wl, model, search
             save_podcast_job({"status": "done"})
     except Exception as e:
         save_podcast_job({"status": "error", "error": str(e)})
+
+
+def _screener_llm_worker(run_index: int, signals: list, api_key: str,
+                         model: str, search_config: dict):
+    try:
+        result = analyze_screener_signals(signals, api_key, model, search_config)
+        if "error" in result:
+            save_screener_llm_job({"status": "error", "error": result["error"]})
+            return
+
+        # Write verdicts into the history entry
+        history = load_screener_history()
+        if run_index < len(history):
+            history[run_index]["llm_analysis"] = {
+                "verdicts":      result.get("verdicts", []),
+                "text":          result.get("text", ""),
+                "analyzed_at":   datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                "input_tokens":  result.get("input_tokens", 0),
+                "output_tokens": result.get("output_tokens", 0),
+            }
+            _save_json_file(SCREENER_HISTORY_FILE, history)
+
+        log_token_usage("screener_llm", model,
+                        result.get("input_tokens", 0), result.get("output_tokens", 0))
+        save_screener_llm_job({"status": "done", "run_index": run_index})
+    except Exception as e:
+        save_screener_llm_job({"status": "error", "error": str(e)})
 
 
 def _screener_worker(index: str, capital: float, risk_pct: float, min_crv: float):
@@ -1189,6 +1226,19 @@ with tab_screener:
                 if not eur_native and eurusd == 1.0:
                     st.error("⚠️ EUR/USD-Kurs konnte nicht abgerufen werden — alle EUR-Werte basieren auf dem Fallback-Kurs 1.0 und sind **nicht verwertbar**. Bitte Screening erneut ausführen.")
                 signals = entry.get("signals", [])
+                # LLM job status for this run
+                llm_job = load_screener_llm_job()
+                llm_running_here = (
+                    llm_job.get("status") == "running" and
+                    llm_job.get("run_index") == run_idx
+                )
+                llm_done_here = (
+                    llm_job.get("status") == "done" and
+                    llm_job.get("run_index") == run_idx
+                )
+                if llm_done_here:
+                    save_screener_llm_job({"status": "idle"})
+
                 if not signals:
                     st.info("Kein Signal gefunden, das alle Kriterien erfüllt.")
                 else:
@@ -1217,6 +1267,62 @@ with tab_screener:
                         })
                     import pandas as pd
                     st.dataframe(pd.DataFrame(summary_rows), hide_index=True, width="stretch")
+
+                    # ── LLM-Analyse ───────────────────────────────────────────
+                    llm_analysis = entry.get("llm_analysis")
+                    api_key_present = bool(st.session_state.get("api_key"))
+
+                    if llm_running_here:
+                        st.info("⏳ LLM-Analyse läuft...")
+                        time.sleep(4)
+                        st.rerun()
+                    elif llm_analysis:
+                        _verdict_icons = {
+                            "bestätigt": "✅",
+                            "vorsicht":  "⚠️",
+                            "abgelehnt": "❌",
+                        }
+                        st.markdown("**🤖 LLM-Fundamentalanalyse:**")
+                        for v in llm_analysis.get("verdicts", []):
+                            icon = _verdict_icons.get(v.get("verdict", ""), "❓")
+                            st.markdown(f"{icon} **{v['ticker']}** — {v.get('hauptgrund', '')}")
+                            for p in v.get("punkte", []):
+                                st.markdown(f"  - {p}")
+                        if llm_analysis.get("text"):
+                            st.caption(llm_analysis["text"])
+                        inp = llm_analysis.get("input_tokens", 0)
+                        out = llm_analysis.get("output_tokens", 0)
+                        if inp or out:
+                            cost = (inp / 1_000_000) * CLAUDE_INPUT_PRICE_PER_M + \
+                                   (out / 1_000_000) * CLAUDE_OUTPUT_PRICE_PER_M
+                            analyzed_at = llm_analysis.get("analyzed_at", "")
+                            try:
+                                analyzed_at = datetime.strptime(analyzed_at, "%Y-%m-%dT%H:%M:%S").strftime("%d.%m.%Y %H:%M")
+                            except Exception:
+                                pass
+                            st.caption(f"Analysiert: {analyzed_at} | 🪙 {inp:,} Input / {out:,} Output | ${cost:.4f}")
+                    else:
+                        if not api_key_present:
+                            st.caption("🤖 LLM-Analyse nicht verfügbar — API Key fehlt.")
+                        elif llm_job.get("status") == "running":
+                            st.info("⏳ LLM-Analyse läuft für einen anderen Run...")
+                        else:
+                            if st.button("🤖 LLM-Fundamentalanalyse starten",
+                                         key=f"llm_btn_{run_idx}",
+                                         use_container_width=True):
+                                model = settings.get("model", "claude-sonnet-4-6")
+                                sc = get_search_config(settings)
+                                save_screener_llm_job({
+                                    "status":    "running",
+                                    "run_index": run_idx,
+                                })
+                                threading.Thread(
+                                    target=_screener_llm_worker,
+                                    args=(run_idx, signals,
+                                          st.session_state.api_key, model, sc),
+                                    daemon=True,
+                                ).start()
+                                st.rerun()
 
                     # Detail expanders per signal
                     st.markdown("**Signal-Details & Order-Daten:**")
