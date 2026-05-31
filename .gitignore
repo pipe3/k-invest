@@ -23,7 +23,15 @@ doppelgaenger_watchlist.json
 podcast_history.json
 podcast_job.json
 depot_job.json
+discovery_job.json
+screener_job.json
+screener_llm_job.json
+screener_history.json
+index_cache.json
 data/*.json
+
+# Claude Code — local/personal settings (permissions, device-specific paths)
+.claude/settings.local.json
 
 # IDE / Editor
 .vscode/
