@@ -86,6 +86,7 @@ def analyze_portfolio(depot: list, watchlist: list, api_key: str,
         total_input_tokens = 0
         total_output_tokens = 0
         saved_targets = {}
+        accumulated_text = []
 
         while True:
             response = client.messages.create(
@@ -99,17 +100,13 @@ def analyze_portfolio(depot: list, watchlist: list, api_key: str,
             total_input_tokens += response.usage.input_tokens
             total_output_tokens += response.usage.output_tokens
 
+            for block in response.content:
+                if block.type == "text" and block.text.strip():
+                    accumulated_text.append(block.text)
+
             if response.stop_reason != "tool_use":
-                for block in response.content:
-                    if block.type == "text":
-                        return {
-                            "text": block.text,
-                            "input_tokens": total_input_tokens,
-                            "output_tokens": total_output_tokens,
-                            "price_targets": saved_targets,
-                        }
                 return {
-                    "text": "Keine finale Text-Antwort erhalten.",
+                    "text": "\n\n".join(accumulated_text) if accumulated_text else "Keine finale Text-Antwort erhalten.",
                     "input_tokens": total_input_tokens,
                     "output_tokens": total_output_tokens,
                     "price_targets": saved_targets,
